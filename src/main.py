@@ -3,6 +3,7 @@ Atom Voting — application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from src.api.auth import router as auth_router
 from src.api.routes import router as voting_router
@@ -33,3 +34,6 @@ app.include_router(ws_router)
 def health_check() -> dict:
     """Health check endpoint for load balancers and CI."""
     return {"status": "ok", "version": "1.0.0"}
+
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
