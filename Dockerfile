@@ -6,16 +6,13 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN python3 -c "
-with open('requirements.txt', 'rb') as f:
-    raw = f.read()
-if raw.startswith(b'\xff\xfe') or b'\x00' in raw:
-    import codecs
-    text = raw.decode('utf-16')
-else:
-    text = raw.decode('utf-8')
-with open('requirements.txt', 'w', encoding='utf-8') as f:
-    f.write(text)
-" && pip install --no-cache-dir -r requirements.txt
+   with open('requirements.txt', 'rb') as f:
+       raw = f.read()
+   if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+       text = raw.decode('utf-16')
+       with open('requirements.txt', 'w', encoding='utf-8') as f:
+           f.write(text)
+   " && pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 
