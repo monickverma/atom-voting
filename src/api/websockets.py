@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-router = APIRouter(tags=["websockets"])
+router = APIRouter(prefix="/api/v1", tags=["websockets"])
 
 
 class EventType(str, Enum):
