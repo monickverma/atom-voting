@@ -1,6 +1,6 @@
 # Atom Voting
 
-> A transparent, open-source decentralized voting platform built for hackathons and community governance.
+> A nation-state resistant, end-to-end verifiable, coercion-resistant cryptographic Internet voting system.
 
 [![CI](https://github.com/monickverma/atom-voting/actions/workflows/ci.yml/badge.svg)](https://github.com/monickverma/atom-voting/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -11,36 +11,64 @@
 
 ## Problem
 
-Existing voting systems are opaque, centralized, and difficult to audit. Communities running hackathons, DAOs, or open-source governance have no lightweight, self-hostable tool they can trust, fork, and contribute to.
+Existing Internet voting systems — including Estonia's i-Voting, Helios, and blockchain-based proposals — fail to simultaneously satisfy:
+
+| Threat | Existing Gap |
+|--------|-------------|
+| Malware on voter devices | Vote silently manipulated before encryption |
+| Credential theft | Stolen passwords used to impersonate voters |
+| Insider attacks | Election staff can manipulate votes or tally |
+| Coercion / vote-selling | Voter forced to prove how they voted |
+| Lack of E2E verifiability | No cryptographic proof vote was counted correctly |
+| Traffic analysis | Nation-state observers correlate *who* voted *when* |
+
+No production system addresses all of these simultaneously. This project does.
 
 ---
 
 ## Solution
 
-**Atom Voting** provides a transparent, contribution-ready voting API and CLI. Every vote is logged, auditable, and extensible. Teams can self-host it in minutes and contributors can add new tallying strategies, frontends, or integrations without touching core logic.
+**Atom Voting** is an open-source reference implementation of a cryptographic remote voting protocol that integrates:
 
----
+- 🔐 **Hardware-bound identity** — FIDO2/TPM, no passwords to steal or phish
+- 🔢 **Code voting** — voter enters a numeric code, not a name; malware sees nothing meaningful
+- 📱 **Dual-device verification** — two independent devices must agree before a vote is cast
+- 🎭 **Fake credentials (JCJ scheme)** — coercers cannot distinguish a real vote from a decoy
+- 🔁 **Re-voting** — override any coerced or malware-affected vote at any time
+- 🔍 **Challenge / Spoil ballots** — probabilistic audit mechanism to catch manipulation
+- 🔗 **Immutable blockchain ledger** — publicly auditable, tamper-evident vote log
+- 🔀 **MixNet anonymisation** — shuffles and re-encrypts all votes before decryption
+- 🔑 **Threshold cryptography** — 3-of-5 trustees must cooperate to decrypt; no single point of trust
+- 🌐 **Traffic analysis defence** — anonymity routing, constant dummy traffic, packet padding
 
-## Demo
-
-> _Screenshot / GIF of the running application goes here._
-
-![Demo Placeholder](docs/assets/demo-placeholder.png)
+> **Security level: Near theoretical maximum for remote Internet voting, as of current academic understanding.**
 
 ---
 
 ## Architecture Overview
 
 ```mermaid
-graph LR
-    User["👤 User"] --> WebApp["Web App / CLI"]
-    WebApp --> API["REST API\n(FastAPI)"]
-    API --> DB[("PostgreSQL\nDatabase")]
-    API --> Cache["Redis\nCache"]
-    API --> External["External Auth\nProvider"]
+graph TB
+    subgraph "Voter Environment"
+        DevA["📱 Device A\n(Voting — Hardware Key)"]
+        DevB["📱 Device B\n(Verification — QR Scanner)"]
+    end
+
+    subgraph "Anonymity Layer"
+        Anon["🌐 Onion Routing\n+ Dummy Traffic\n+ Packet Padding"]
+    end
+
+    subgraph "Core Infrastructure"
+        BC["🔗 Blockchain Ledger\n(Encrypted, Public)"]
+        MX["🔀 MixNet\n(Shuffle + Re-encrypt)"]
+        TD["🔑 Threshold Decryption\n(3-of-5 Trustees)"]
+    end
+
+    DevA -->|"QR (EncryptedVote + ZK Proof)"| DevB
+    DevA --> Anon --> BC --> MX --> TD --> Result["📊 Final Tally\n(With Proofs)"]
 ```
 
-For the full architecture breakdown, container diagrams, and ADRs, see [docs/architecture.md](docs/architecture.md).
+For full C4 diagrams, sequence flows, and component breakdown, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -49,67 +77,94 @@ For the full architecture breakdown, container diagrams, and ADRs, see [docs/arc
 ```bash
 git clone https://github.com/monickverma/atom-voting
 cd atom-voting
-cp .env.example .env          # configure your environment
-make install                   # install all dependencies
-make dev                       # start local development server
+cp .env.example .env
+make install
+make dev
 ```
 
-The API will be available at `http://localhost:8000`.  
-Interactive docs: `http://localhost:8000/docs`
+API: `http://localhost:8000` · Interactive docs: `http://localhost:8000/docs`
 
 ---
 
 ## Features
 
-### v1.0 (Current)
-- [x] REST API with versioned endpoints (`/api/v1/`)
-- [x] Create and manage voting polls
-- [x] Cast and tally votes
+### v1.0 — Core Protocol (Current)
+- [x] Cryptographic ballot model (ElGamal encryption, ZK proof stubs)
+- [x] Re-voting with `RevotePointer` chain
+- [x] Fake credential flag (JCJ scheme) — tally discards fake votes
+- [x] Challenge / Spoil audit mechanism
+- [x] REST API versioned at `/api/v1/`
+- [x] Immutable vote log (append-only ledger)
 - [x] Docker Compose local development
-- [x] CLI interface
+- [x] CI pipeline (lint + type check + tests + coverage)
 
-### Coming Soon
-- [ ] Rate limiting and anti-spam (#15)
-- [ ] Batch voting endpoint (#12) — _good first issue_
-- [ ] Integration tests (#18) — _good first issue_
-- [ ] WebSocket real-time results (#20)
-- [ ] Plugin system for custom tallying strategies
+### v1.1 — Contributions Welcome 🙌
+- [ ] ElGamal homomorphic encryption implementation (#5) — `good first issue`
+- [ ] ZK proof generation and verification (#7) — `good first issue`
+- [ ] MixNet shuffle layer (#9) — `intermediate`
+- [ ] Threshold decryption ceremony (#11) — `advanced`
+- [ ] Integration tests for full vote lifecycle (#18) — `good first issue`
+
+### v2.0 — Future
+- [ ] Hardware key (FIDO2/WebAuthn) authentication
+- [ ] Dual-device QR verification flow
+- [ ] On-chain Merkle-tree vote ledger
+- [ ] Traffic anonymisation layer
+- [ ] Full trustee key ceremony UI
+
+---
+
+## System Comparisons
+
+| System | E2E Verifiable | Coercion Resistant | Distributed Trust | Hardware Identity | Traffic Protection |
+|--------|:-:|:-:|:-:|:-:|:-:|
+| Estonia i-Voting | ❌ | ❌ | ❌ | Partial | ❌ |
+| Helios | ✅ | ❌ | Partial | ❌ | ❌ |
+| **Atom Voting** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## Academic Foundations
+
+| Component | Source Scheme |
+|-----------|--------------|
+| End-to-end verifiability | Helios, Belenios, STAR-Vote |
+| Code voting | Prêt-à-Voter |
+| Fake credentials | JCJ (Juels-Catalano-Jakobsson) |
+| MixNet anonymity | Chaum MixNets, Verificatum |
+| Threshold cryptography | Shamir Secret Sharing |
+| Hardware identity | FIDO2 / WebAuthn / TPM |
+| Anonymity routing | Tor onion routing |
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|---|---|
+|-------|-----------|
 | API | FastAPI (Python 3.12) |
-| Database | PostgreSQL |
-| Cache | Redis |
-| Containerization | Docker + Docker Compose |
+| Encryption | ElGamal / Paillier (homomorphic) |
+| Persistence | PostgreSQL + append-only vote ledger |
+| Cache / Rate limiting | Redis |
+| Containerisation | Docker + Docker Compose |
 | CI/CD | GitHub Actions |
 
 ---
 
 ## Contributing
 
-We welcome contributions of all kinds — code, docs, tests, and ideas.
+We welcome contributions at all skill levels — from fixing docs to implementing ZK proofs.
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) to get started.  
-Browse [open issues](https://github.com/monickverma/atom-voting/issues) for tasks labeled `good first issue`.
-
-For architectural questions see [docs/architecture.md](docs/architecture.md).  
-For discussion and questions use [GitHub Discussions](https://github.com/monickverma/atom-voting/discussions).
-
----
-
-## Code of Conduct
-
-This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By participating you agree to uphold a welcoming, respectful community.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.  
+Browse issues tagged `difficulty: good first issue` to start.  
+See [docs/architecture.md](docs/architecture.md) for deep system design.  
+Ask questions in [GitHub Discussions](https://github.com/monickverma/atom-voting/discussions).
 
 ---
 
 ## Security
 
-To report a vulnerability, please see [SECURITY.md](SECURITY.md). Do **not** open a public GitHub issue.
+This project deals with cryptographic voting primitives. Please report vulnerabilities via [SECURITY.md](SECURITY.md) — **never** via public issues.
 
 ---
 

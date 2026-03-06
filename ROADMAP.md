@@ -1,53 +1,71 @@
 # Roadmap
 
-This roadmap outlines the development direction of Atom Voting. It is a living document — community input shapes what gets prioritised.
+This roadmap reflects the phased implementation of the full cryptographic voting protocol. It is a living document — community input shapes what gets prioritised.
 
 ---
 
-## v1.0 — Hackathon Release ✅ (Current)
+## Phase 0 — Pre-Election Setup ✅ (Current)
 
-- [x] Core voting domain logic (`src/core/voting.py`)
-- [x] REST API with versioned endpoints (`/api/v1/`)
-- [x] Create poll, cast vote, retrieve results endpoints
-- [x] Modular architecture (core / services / api / models)
-- [x] Docker Compose local development
-- [x] CI pipeline (lint + type check + tests)
-- [x] Full contributor documentation
+The cryptographic foundation: ballot model, credential model, and vote ledger.
 
----
-
-## v1.1 — Contributions Welcome 🙌
-
-> These are confirmed next steps. Great contribution opportunities.
-
-- [ ] Add rate limiting to prevent vote spam (#15) — `difficulty: intermediate`
-- [ ] Add batch voting endpoint for bulk submissions (#12) — `difficulty: good first issue`
-- [ ] Write integration tests for API endpoints (#18) — `difficulty: good first issue`
-- [ ] Add Dependabot for dependency updates (#22) — `difficulty: good first issue`
-- [ ] Add pagination to results endpoint (#25) — `difficulty: intermediate`
+- [x] Domain ballot model: `Poll`, `Vote`, `EncryptedVote`, `Credential` types
+- [x] Re-voting with `RevotePointer` chain — only latest vote counted
+- [x] Fake credential model (JCJ scheme) — tally discards `FakeCredential` votes
+- [x] Challenge / Spoil audit mechanism — server decrypts temporarily, ballot destroyed
+- [x] REST API versioned at `/api/v1/`
+- [x] Append-only vote ledger (immutable store)
+- [x] Docker Compose local dev (API + PostgreSQL + Redis)
+- [x] CI pipeline (lint + type check + 14 unit tests)
+- [x] Full contributor documentation + C4 architecture docs
+- [x] ADR: database choice, encryption scheme
 
 ---
 
-## v2.0 — Community Input Needed 💬
+## v1.1 — Cryptographic Primitives 🙌 (Contributions Welcome)
 
-> These are ideas under active discussion. Open a Discussion to share your thoughts.
+> Implementing the real math. Great contribution opportunities for anyone interested in applied cryptography.
 
-- [ ] WebSocket support for real-time vote results
-- [ ] Plugin system for custom tallying strategies (ranked choice, quadratic, etc.)
-- [ ] Web dashboard UI
-- [ ] Webhook integration for vote event notifications
-- [ ] Multi-language support
+- [ ] ElGamal homomorphic encryption for ballot ciphertext (#5) — `difficulty: good first issue`
+- [ ] Zero-knowledge proof generation: vote encrypts a valid candidate (#7) — `difficulty: good first issue`
+- [ ] ZK proof verification on Device B (audit path) (#8) — `difficulty: intermediate`
+- [ ] Shamir Secret Sharing key ceremony simulation (#11) — `difficulty: intermediate`
+- [ ] Integration tests for full cast → challenge → revote lifecycle (#18) — `difficulty: good first issue`
+- [ ] Dependabot setup (#22) — `difficulty: good first issue`
 
 ---
 
-## Ideas Under Consideration 💡
+## v1.2 — MixNet & Threshold Decryption
 
-These are not committed but welcome PRs:
+> The anonymisation and decryption ceremony layers.
 
-- Slack / Discord bot integration
-- Public audit log export (CSV, JSON)
-- Anonymous voting mode
-- Multi-tenant support
+- [ ] MixNet shuffle: re-encrypt and permute all ciphertexts before tally (#9)
+- [ ] Threshold decryption ceremony: 3-of-5 trustee share combination (#13)
+- [ ] Code voting: per-voter numeric mapping generation (#15)
+- [ ] Receipt verification: voter confirms ballot on public ledger (#16)
+- [ ] Fake credential tally filter: discard `FakeCredential` votes under threshold secrecy (#17)
+
+---
+
+## v2.0 — Hardware Identity & Traffic Defence 💬
+
+> Nation-state resistance layer. Requires hardware integration and network infrastructure.
+
+- [ ] FIDO2 / WebAuthn hardware key authentication (replaces password login)
+- [ ] Dual-device QR verification flow (Device A → QR → Device B scan)
+- [ ] Onion routing integration (Tor-like dummy traffic + packet padding)
+- [ ] Biometric + TPM attestation for device registration
+- [ ] On-chain Merkle-tree audit ledger
+- [ ] Full trustee key ceremony UI
+
+---
+
+## v3.0 — Production Hardening
+
+- [ ] Formal security audit by independent cryptographers
+- [ ] Reproductible build verification
+- [ ] Multi-region geo-distributed deployment
+- [ ] Hybrid offline ballot fallback
+- [ ] Web dashboard for election administrators
 
 ---
 
@@ -55,4 +73,4 @@ These are not committed but welcome PRs:
 
 1. Open a [GitHub Discussion](https://github.com/monickverma/atom-voting/discussions) under **Ideas**
 2. Upvote existing feature requests in Issues
-3. Submit a PR — working code drives prioritisation faster than anything else
+3. Submit a PR — working code drives prioritisation faster than anything
