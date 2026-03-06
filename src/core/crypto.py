@@ -53,6 +53,19 @@ def decrypt(c1: int, c2: int, x: int) -> int:
     return (c2 * s_inv) % P
 
 
+def reencrypt(c1: int, c2: int, h: int) -> tuple[int, int]:
+    """
+    Homomorphic ciphertext re-encryption (Used by MixNet).
+    Randomizes a ciphertext into a mathematically completely different pair (c1', c2')
+    that still decrypts to the exact same message m.
+    Returns (c1', c2').
+    """
+    r_prime = secrets.randbelow(Q - 2) + 2
+    c1_prime = (c1 * pow(G, r_prime, P)) % P
+    c2_prime = (c2 * pow(h, r_prime, P)) % P
+    return c1_prime, c2_prime
+
+
 def decode_candidate(gm: int, valid_codes: list[int]) -> int | None:
     """Matches the decrypted group element g^m back to the numeric code m."""
     for code in valid_codes:
@@ -168,3 +181,65 @@ def verify_disjunctive_zkp(
     sum_c = sum(challenges) % Q
     
     return c == sum_c
+
+
+# ─── Shamir Secret Sharing (over Z_Q) ─────────────────────────────────────────
+
+def _eval_poly(poly: list[int], x: int) -> int:
+    """Evaluates polynomial at x using Horner's method, modulo Q."""
+    result = 0
+    for coeff in reversed(poly):
+        result = (result * x + coeff) % Q
+    return result
+
+
+def shamir_split(secret: int, threshold: int, num_shares: int) -> list[tuple[int, int]]:
+    """
+    Splits a secret into `num_shares` where any `threshold` can recover it.
+    Returns a list of (x, y) coordinates.
+    """
+    if threshold > num_shares:
+        raise ValueError("Threshold cannot be greater than the number of shares")
+    
+    # poly[0] is the secret, poly[1...threshold-1] are random coefficients
+    poly = [secret] + [secrets.randbelow(Q) for _ in range(threshold - 1)]
+    
+    shares = []
+    for i in range(1, num_shares + 1):
+        x = i
+        y = _eval_poly(poly, x)
+        shares.append((x, y))
+        
+    return shares
+
+
+def _lagrange_interpolate(x: int, x_s: list[int], y_s: list[int]) -> int:
+    """Finds the y-value at x using Lagrange interpolation over Z_Q."""
+    k = len(x_s)
+    secret = 0
+    for i in range(k):
+        num = 1
+        den = 1
+        for j in range(k):
+            if i == j:
+                continue
+            num = (num * (x - x_s[j])) % Q
+            den = (den * (x_s[i] - x_s[j])) % Q
+        
+        # Division in Z_Q is multiplication by the modular inverse
+        term = (y_s[i] * num * pow(den, Q - 2, Q)) % Q
+        secret = (secret + term) % Q
+        
+    return (secret + Q) % Q
+
+
+def shamir_combine(shares: list[tuple[int, int]]) -> int:
+    """
+    Recovers the secret given a list of (x, y) shares.
+    Requires at least `threshold` shares to work correctly.
+    """
+    if not shares:
+        raise ValueError("At least one share is required to combine")
+    
+    x_s, y_s = zip(*shares)
+    return _lagrange_interpolate(0, list(x_s), list(y_s))
