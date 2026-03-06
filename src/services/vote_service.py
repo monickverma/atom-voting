@@ -1,48 +1,85 @@
 """
 Atom Voting — vote service.
 
-Orchestrates use cases using core domain logic.
+Orchestrates cryptographic use cases using core domain logic.
 This layer owns the "what to do" — it calls core for domain decisions
-and will call database/cache adapters for persistence (to be wired later).
+and manages the append-only ledger state.
 """
 from __future__ import annotations
 
-from src.core.voting import tally_votes, validate_vote
-from src.models.vote import CastVoteRequest, Poll, PollResults, Vote
+from datetime import datetime, timezone
 
-# In-memory store for hackathon demo. Replace with a real repository adapter.
-_polls: dict[str, Poll] = {}
-_votes: list[Vote] = []
+from src.core.voting import (
+    compute_receipt_hash,
+    compute_vote_id,
+    tally_votes,
+    validate_ballot,
+)
+from src.models.ballot import (
+    ChallengeResponse,
+    SubmitVoteRequest,
+    VoteAction,
+    VoteBlock,
+)
+
+# In-memory stores for hackathon demo. Replace with real PG adapter.
+_ledger: list[VoteBlock] = []
+_seen_nonces: set[str] = set()
+
+# Stub election public key (would come from DB/Config)
+ELECTION_PUBLIC_KEY = "stub-election-public-key"
+IS_ELECTION_OPEN = True
+
+# Code mapping for tallying (would be managed by Code Server)
+CODE_MAP = {4427: "Candidate B", 8391: "Candidate A", 9102: "Candidate C"}
+# For the hackathon demo, we pretend we know how to decrypt the stub ciphertexts
+_decrypted_codes: dict[str, int] = {}
+_fake_credentials: set[str] = set()
 
 
-def get_poll(poll_id: str) -> Poll | None:
-    return _polls.get(poll_id)
-
-
-def create_poll(poll: Poll) -> Poll:
-    _polls[poll.id] = poll
-    return poll
-
-
-def cast_vote(poll: Poll, voter_id: str, request: CastVoteRequest) -> Vote:
+def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResponse:
     """
-    Cast a vote in a poll.
-
-    Delegates validation to core logic (pure, testable).
-    Saves to the repository after validation passes.
+    Process an incoming ballot submission.
+    Handles both CAST and CHALLENGE actions.
     """
-    existing_votes_for_poll = [v for v in _votes if v.poll_id == poll.id]
-    validate_vote(poll, voter_id, request.choice, existing_votes_for_poll)
+    # 1. Pure domain validation (throws VotingError if invalid)
+    validate_ballot(request, ELECTION_PUBLIC_KEY, _seen_nonces, IS_ELECTION_OPEN)
 
-    vote = Vote(
-        poll_id=poll.id,
-        voter_id=voter_id,
-        choice=request.choice,
+    if request.action == VoteAction.CHALLENGE:
+        # Challenge audit: reveal what the code was, do NOT store the ballot
+        # In a real system, the server decrypts the ElGamal ciphertext using threshold shares here.
+        # For the stub, we just pretend it was 4427.
+        _seen_nonces.add(request.encrypted_ballot.nonce_id)
+        return ChallengeResponse(
+            decrypted_code=4427,
+            candidate_mapping_hint="4427 → Candidate B",
+        )
+
+    # 2. Cast action: save to immutable ledger
+    vote_id = compute_vote_id(request.encrypted_ballot)
+    timestamp = datetime.now(timezone.utc)
+    receipt_hash = compute_receipt_hash(vote_id, request.credential_hash, timestamp)
+
+    block = VoteBlock(
+        vote_id=vote_id,
+        ciphertext=request.encrypted_ballot,
+        credential_hash=request.credential_hash,
+        timestamp=timestamp,
+        revote_pointer=request.revote_pointer,
+        zk_proof=request.zk_proof,
+        receipt_hash=receipt_hash,
     )
-    _votes.append(vote)
-    return vote
+
+    _ledger.append(block)
+    _seen_nonces.add(request.encrypted_ballot.nonce_id)
+
+    # Cheat for the demo tally: we store the stub code
+    # Real tally uses threshold decryption AFTER mixnet.
+    _decrypted_codes[vote_id] = 4427
+
+    return {"receipt_hash": receipt_hash, "vote_id": vote_id}
 
 
-def get_results(poll: Poll) -> PollResults:
-    poll_votes = [v for v in _votes if v.poll_id == poll.id]
-    return tally_votes(poll, poll_votes)
+def run_tally() -> dict[str, int]:
+    """Run the election tally according to JCJ and revote rules."""
+    return tally_votes(_ledger, _fake_credentials, CODE_MAP, _decrypted_codes)
