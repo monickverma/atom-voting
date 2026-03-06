@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.core.crypto import DEMO_PUBK
 from src.core.voting import (
     DuplicateNonceError,
     ElectionClosedError,
@@ -30,29 +31,34 @@ from src.models.ballot import (
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-ELECTION_PK = "stub-election-public-key"
-
-
-def make_ballot(code: int = 4427, nonce: str = "nonce001") -> EncryptedBallot:
-    ballot = EncryptedBallot.stub_encrypt(code, ELECTION_PK)
-    # Override nonce for deterministic testing
-    return ballot.model_copy(update={"nonce_id": nonce})
-
-
-def make_zk_proof(ballot: EncryptedBallot) -> ZKProof:
-    return ZKProof.stub_proof(ballot)
-
+ELECTION_PK = DEMO_PUBK
+VALID_CODES = [4427, 8391, 9102]
 
 def make_request(
-    ballot: EncryptedBallot | None = None,
+    code: int = 4427,
     action: VoteAction = VoteAction.CAST,
     credential_hash: str = "cred_hash_001",
     revote_pointer: str | None = None,
+    override_nonce: str | None = None,
+    invalid_zkp: bool = False,
 ) -> SubmitVoteRequest:
-    b = ballot or make_ballot()
+    # 1. Real ElGamal Encryption
+    ballot, r = EncryptedBallot.encrypt_vote(code, ELECTION_PK)
+    if override_nonce:
+        ballot = ballot.model_copy(update={"nonce_id": override_nonce})
+    
+    # 2. Real ZK Proof
+    proof = ZKProof.generate(code, r, ballot, ELECTION_PK, VALID_CODES)
+    
+    if invalid_zkp:
+        # Tamper with the proof to make it invalid
+        tampered_data = proof.proof_data.copy()
+        tampered_data["responses"][0] = "DEADBEEF"
+        proof = ZKProof(proof_data=tampered_data)
+
     return SubmitVoteRequest(
-        encrypted_ballot=b,
-        zk_proof=make_zk_proof(b),
+        encrypted_ballot=ballot,
+        zk_proof=proof,
         credential_hash=credential_hash,
         action=action,
         revote_pointer=revote_pointer,
@@ -63,15 +69,16 @@ def make_vote_block(
     credential_hash: str = "cred001",
     vote_id: str | None = None,
     revote_pointer: str | None = None,
+    code: int = 4427,
 ) -> VoteBlock:
-    ballot = make_ballot()
-    vid = vote_id or compute_vote_id(ballot)
+    req = make_request(code=code, credential_hash=credential_hash, revote_pointer=revote_pointer)
+    vid = vote_id or compute_vote_id(req.encrypted_ballot)
     receipt = compute_receipt_hash(vid, credential_hash, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
     return VoteBlock(
         vote_id=vid,
-        ciphertext=ballot,
+        ciphertext=req.encrypted_ballot,
         credential_hash=credential_hash,
-        zk_proof=make_zk_proof(ballot),
+        zk_proof=req.zk_proof,
         receipt_hash=receipt,
         revote_pointer=revote_pointer,
     )
@@ -82,46 +89,46 @@ def make_vote_block(
 class TestValidateBallot:
     def test_valid_ballot_passes(self) -> None:
         req = make_request()
-        validate_ballot(req, ELECTION_PK, set(), election_open=True)  # should not raise
+        validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=True)
 
     def test_raises_when_election_closed(self) -> None:
         req = make_request()
         with pytest.raises(ElectionClosedError) as exc:
-            validate_ballot(req, ELECTION_PK, set(), election_open=False)
+            validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=False)
         assert exc.value.code == "ELECTION_CLOSED"
 
     def test_raises_on_duplicate_nonce(self) -> None:
-        ballot = make_ballot(nonce="nonce_dup")
-        req = make_request(ballot=ballot)
-        seen = {ballot.nonce_id}
+        req = make_request(override_nonce="nonce_dup")
+        seen = {"nonce_dup"}
         with pytest.raises(DuplicateNonceError) as exc:
-            validate_ballot(req, ELECTION_PK, seen, election_open=True)
+            validate_ballot(req, ELECTION_PK, VALID_CODES, seen, election_open=True)
         assert exc.value.code == "DUPLICATE_NONCE"
 
     def test_unique_nonce_always_passes(self) -> None:
-        req1 = make_request(ballot=make_ballot(nonce="n001"))
-        req2 = make_request(ballot=make_ballot(nonce="n002"))
+        req1 = make_request()
+        req2 = make_request()
         seen: set[str] = set()
-        validate_ballot(req1, ELECTION_PK, seen, election_open=True)
+        validate_ballot(req1, ELECTION_PK, VALID_CODES, seen, election_open=True)
         seen.add(req1.encrypted_ballot.nonce_id)
-        validate_ballot(req2, ELECTION_PK, seen, election_open=True)  # should pass
+        validate_ballot(req2, ELECTION_PK, VALID_CODES, seen, election_open=True)
 
-    def test_stub_zk_proof_is_valid(self) -> None:
-        ballot = make_ballot()
-        proof = ZKProof.stub_proof(ballot)
-        assert proof.verify(ballot, ELECTION_PK) is True
+    def test_invalid_zk_proof_raises(self) -> None:
+        req = make_request(invalid_zkp=True)
+        with pytest.raises(InvalidZKProofError) as exc:
+            validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=True)
+        assert exc.value.code == "INVALID_ZK_PROOF"
 
 
 # ─── compute_vote_id ──────────────────────────────────────────────────────────
 
 class TestComputeVoteId:
     def test_deterministic(self) -> None:
-        ballot = make_ballot(nonce="fixed_nonce")
+        ballot = make_request(override_nonce="fixed_nonce").encrypted_ballot
         assert compute_vote_id(ballot) == compute_vote_id(ballot)
 
     def test_different_nonces_produce_different_ids(self) -> None:
-        b1 = make_ballot(nonce="n_a")
-        b2 = make_ballot(nonce="n_b")
+        b1 = make_request(override_nonce="n_a").encrypted_ballot
+        b2 = make_request(override_nonce="n_b").encrypted_ballot
         assert compute_vote_id(b1) != compute_vote_id(b2)
 
 

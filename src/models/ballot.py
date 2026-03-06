@@ -76,25 +76,30 @@ class CandidateCode(BaseModel):
 class EncryptedBallot(BaseModel):
     """
     An ElGamal-encrypted ballot ciphertext.
-    v1.0: ciphertext fields are stubs (plain ints for testing).
-    v1.1: replace with real ElGamal group elements.
-
-    See docs/decisions/002-encryption-scheme.md.
+    c1 and c2 are hex-encoded strings representing the exponential ElGamal ciphertext.
     """
 
-    c1: str = Field(..., description="g^r mod p (ElGamal first component)")
-    c2: str = Field(..., description="g^m · h^r mod p (ElGamal second component)")
+    c1: str = Field(..., description="g^r mod p (hex string)")
+    c2: str = Field(..., description="g^m · h^r mod p (hex string)")
     nonce_id: str = Field(..., description="Unique nonce ID — ensures fresh encryption per vote")
 
     @classmethod
-    def stub_encrypt(cls, code: int, election_public_key: str) -> "EncryptedBallot":
-        """
-        STUB ONLY — returns deterministic fake ciphertext for testing.
-        Replace with real ElGamal in v1.1 (#5).
-        """
+    def encrypt_vote(cls, code: int, election_public_key: int) -> tuple["EncryptedBallot", int]:
+        """Real exponential ElGamal encryption."""
+        from src.core.crypto import encrypt
+        import secrets
+        
+        c1, c2, r = encrypt(code, election_public_key)
+        nonce_id = secrets.token_hex(16)
+        
+        ballot = cls(c1=hex(c1)[2:], c2=hex(c2)[2:], nonce_id=nonce_id)
+        return ballot, r
+
+    @classmethod
+    def stub_encrypt(cls, code: int, election_public_key: str | int) -> "EncryptedBallot":
+        """STUB ONLY — for backward-compatible pure domain tests."""
         import hashlib
         nonce_id = hashlib.sha256(f"{code}:{election_public_key}:{id(cls)}".encode()).hexdigest()[:16]
-        # Stub: encode as hex so the structure is correct shape
         c1 = hashlib.sha256(f"c1:{nonce_id}:{code}".encode()).hexdigest()
         c2 = hashlib.sha256(f"c2:{nonce_id}:{election_public_key}:{code}".encode()).hexdigest()
         return cls(c1=c1, c2=c2, nonce_id=nonce_id)
@@ -103,23 +108,55 @@ class EncryptedBallot(BaseModel):
 class ZKProof(BaseModel):
     """
     Zero-knowledge proof that the encrypted ballot contains a valid candidate code.
-    v1.0: stub (always returns valid). Real Chaum-Pedersen proof in v1.1 (#7).
+    Uses Cramer-Damgård-Schoenmakers Disjunctive ZK Proof.
     """
 
-    proof_data: str = Field(..., description="Serialised ZK proof bytes (hex)")
-    is_stub: bool = Field(default=True, description="True if this is a stub proof — not production-valid")
+    proof_data: dict[str, list[str]] = Field(..., description="Serialised ZK proof (hex strings)")
+    is_stub: bool = Field(default=False, description="True if this is a stub proof")
+
+    @classmethod
+    def generate(
+        cls, code: int, r: int, ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int]
+    ) -> "ZKProof":
+        """Generate a real Cramer-Damgård-Schoenmakers Disjunctive ZK Proof."""
+        from src.core.crypto import generate_disjunctive_zkp
+        
+        c1 = int(ballot.c1, 16)
+        c2 = int(ballot.c2, 16)
+        
+        proof_ints = generate_disjunctive_zkp(code, r, c1, c2, election_public_key, valid_codes)
+        
+        proof_hex = {
+            "challenges": [hex(c)[2:] for c in proof_ints["challenges"]],
+            "responses": [hex(resp)[2:] for resp in proof_ints["responses"]],
+        }
+        
+        return cls(proof_data=proof_hex, is_stub=False)
+
+    def verify(self, encrypted_ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int]) -> bool:
+        """Verify the Cramer-Damgård-Schoenmakers Disjunctive ZK Proof."""
+        if self.is_stub:
+            return True
+            
+        from src.core.crypto import verify_disjunctive_zkp
+        
+        c1 = int(encrypted_ballot.c1, 16)
+        c2 = int(encrypted_ballot.c2, 16)
+        
+        challenges = self.proof_data.get("challenges", [])
+        responses = self.proof_data.get("responses", [])
+        
+        proof_ints = {
+            "challenges": [int(c, 16) for c in challenges],
+            "responses": [int(resp, 16) for resp in responses],
+        }
+        
+        return verify_disjunctive_zkp(c1, c2, election_public_key, valid_codes, proof_ints)
 
     @classmethod
     def stub_proof(cls, encrypted_ballot: EncryptedBallot) -> "ZKProof":
-        """STUB: generate a placeholder proof. Replace in v1.1 (#7)."""
-        return cls(proof_data=f"stub:{encrypted_ballot.nonce_id}", is_stub=True)
-
-    def verify(self, encrypted_ballot: EncryptedBallot, election_public_key: str) -> bool:
-        """STUB: always returns True. Real Chaum-Pedersen verification in v1.1 (#7)."""
-        if self.is_stub:
-            return True
-        # TODO: implement real ZK verification
-        raise NotImplementedError("Real ZK proof verification not yet implemented — see issue #7")
+        """STUB: placeholder for backward-compatible tests."""
+        return cls(proof_data={"stub": []}, is_stub=True)
 
 
 # ─── Vote Block (Ledger Entry) ────────────────────────────────────────────────

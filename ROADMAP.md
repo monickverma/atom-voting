@@ -25,9 +25,9 @@ The cryptographic foundation: ballot model, credential model, and vote ledger.
 
 > Implementing the real math. Great contribution opportunities for anyone interested in applied cryptography.
 
-- [ ] ElGamal homomorphic encryption for ballot ciphertext (#5) — `difficulty: good first issue`
-- [ ] Zero-knowledge proof generation: vote encrypts a valid candidate (#7) — `difficulty: good first issue`
-- [ ] ZK proof verification on Device B (audit path) (#8) — `difficulty: intermediate`
+- [x] ElGamal homomorphic encryption for ballot ciphertext (#5) — `difficulty: good first issue`
+- [x] Zero-knowledge proof generation: vote encrypts a valid candidate (#7) — `difficulty: good first issue`
+- [x] ZK proof verification on Device B (audit path) (#8) — `difficulty: intermediate`
 - [ ] Shamir Secret Sharing key ceremony simulation (#11) — `difficulty: intermediate`
 - [ ] Integration tests for full cast → challenge → revote lifecycle (#18) — `difficulty: good first issue`
 - [ ] Dependabot setup (#22) — `difficulty: good first issue`

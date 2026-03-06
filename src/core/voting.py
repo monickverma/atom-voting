@@ -72,7 +72,8 @@ def compute_receipt_hash(vote_id: str, credential_hash: str, timestamp: datetime
 
 def validate_ballot(
     request: SubmitVoteRequest,
-    election_public_key: str,
+    election_public_key: int,
+    valid_codes: list[int],
     seen_nonces: set[str],
     election_open: bool,
 ) -> None:
@@ -91,7 +92,7 @@ def validate_ballot(
         raise DuplicateNonceError()
 
     # ZK proof verification — proves ballot encrypts a valid candidate
-    if not request.zk_proof.verify(request.encrypted_ballot, election_public_key):
+    if not request.zk_proof.verify(request.encrypted_ballot, election_public_key, valid_codes):
         raise InvalidZKProofError()
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from src.core.crypto import DEMO_PRVK, DEMO_PUBK, decode_candidate, decrypt
 from src.core.voting import (
     compute_receipt_hash,
     compute_vote_id,
@@ -26,14 +27,16 @@ from src.models.ballot import (
 _ledger: list[VoteBlock] = []
 _seen_nonces: set[str] = set()
 
-# Stub election public key (would come from DB/Config)
-ELECTION_PUBLIC_KEY = "stub-election-public-key"
+# Real cryptographic keys! (Demo defaults)
+ELECTION_PUBLIC_KEY = DEMO_PUBK
 IS_ELECTION_OPEN = True
 
 # Code mapping for tallying (would be managed by Code Server)
 CODE_MAP = {4427: "Candidate B", 8391: "Candidate A", 9102: "Candidate C"}
-# For the hackathon demo, we pretend we know how to decrypt the stub ciphertexts
-_decrypted_codes: dict[str, int] = {}
+VALID_CODES = list(CODE_MAP.keys())
+
+# Real cryptographic tally — tracking what we've decrypted so far.
+# In production, decryption happens via threshold shares.
 _fake_credentials: set[str] = set()
 
 
@@ -43,16 +46,22 @@ def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResp
     Handles both CAST and CHALLENGE actions.
     """
     # 1. Pure domain validation (throws VotingError if invalid)
-    validate_ballot(request, ELECTION_PUBLIC_KEY, _seen_nonces, IS_ELECTION_OPEN)
+    validate_ballot(request, ELECTION_PUBLIC_KEY, VALID_CODES, _seen_nonces, IS_ELECTION_OPEN)
 
     if request.action == VoteAction.CHALLENGE:
-        # Challenge audit: reveal what the code was, do NOT store the ballot
-        # In a real system, the server decrypts the ElGamal ciphertext using threshold shares here.
-        # For the stub, we just pretend it was 4427.
+        # Challenge audit: Server decrypts the ElGamal ciphertext, reveals candidate, and DESTROYS ballot
+        c1 = int(request.encrypted_ballot.c1, 16)
+        c2 = int(request.encrypted_ballot.c2, 16)
+        
+        # In a real system, the server decrypts using threshold shares. For the demo, we use DEMO_PRVK.
+        gm = decrypt(c1, c2, DEMO_PRVK)
+        code = decode_candidate(gm, VALID_CODES) or 0
+        candidate_name = CODE_MAP.get(code, "Unknown")
+        
         _seen_nonces.add(request.encrypted_ballot.nonce_id)
         return ChallengeResponse(
-            decrypted_code=4427,
-            candidate_mapping_hint="4427 → Candidate B",
+            decrypted_code=code,
+            candidate_mapping_hint=f"{code} → {candidate_name}",
         )
 
     # 2. Cast action: save to immutable ledger
@@ -73,13 +82,23 @@ def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResp
     _ledger.append(block)
     _seen_nonces.add(request.encrypted_ballot.nonce_id)
 
-    # Cheat for the demo tally: we store the stub code
-    # Real tally uses threshold decryption AFTER mixnet.
-    _decrypted_codes[vote_id] = 4427
-
     return {"receipt_hash": receipt_hash, "vote_id": vote_id}
 
 
 def run_tally() -> dict[str, int]:
-    """Run the election tally according to JCJ and revote rules."""
-    return tally_votes(_ledger, _fake_credentials, CODE_MAP, _decrypted_codes)
+    """
+    Run the real election tally according to JCJ and revote rules.
+    Decrypts the ciphertexts using DEMO_PRVK. 
+    (In production, MixNet shuffles ledger before threshold decryption).
+    """
+    decrypted_codes: dict[str, int] = {}
+    
+    for block in _ledger:
+        c1 = int(block.ciphertext.c1, 16)
+        c2 = int(block.ciphertext.c2, 16)
+        gm = decrypt(c1, c2, DEMO_PRVK)
+        code = decode_candidate(gm, VALID_CODES)
+        if code is not None:
+            decrypted_codes[block.vote_id] = code
+            
+    return tally_votes(_ledger, _fake_credentials, CODE_MAP, decrypted_codes)
