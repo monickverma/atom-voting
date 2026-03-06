@@ -28,9 +28,10 @@ The cryptographic foundation: ballot model, credential model, and vote ledger.
 - [x] ElGamal homomorphic encryption for ballot ciphertext (#5) — `difficulty: good first issue`
 - [x] Zero-knowledge proof generation: vote encrypts a valid candidate (#7) — `difficulty: good first issue`
 - [x] ZK proof verification on Device B (audit path) (#8) — `difficulty: intermediate`
-- [ ] Shamir Secret Sharing key ceremony simulation (#11) — `difficulty: intermediate`
+- [x] Shamir Secret Sharing key ceremony simulation (#11) — `difficulty: intermediate`
+- [x] Tally UI (real-time WebSocket results display) (#4) — `difficulty: intermediate`
 - [ ] Integration tests for full cast → challenge → revote lifecycle (#18) — `difficulty: good first issue`
-- [ ] Dependabot setup (#22) — `difficulty: good first issue`
+- [x] Dependabot setup (#22) — `difficulty: good first issue`
 
 ---
 
@@ -50,7 +51,7 @@ The cryptographic foundation: ballot model, credential model, and vote ledger.
 
 > Nation-state resistance layer. Requires hardware integration and network infrastructure.
 
-- [ ] FIDO2 / WebAuthn hardware key authentication (replaces password login)
+- [x] FIDO2 / WebAuthn hardware key authentication (replaces password login)
 - [ ] Dual-device QR verification flow (Device A → QR → Device B scan)
 - [ ] Onion routing integration (Tor-like dummy traffic + packet padding)
 - [ ] Biometric + TPM attestation for device registration

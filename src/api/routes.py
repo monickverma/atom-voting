@@ -18,13 +18,13 @@ router = APIRouter(prefix="/api/v1", tags=["voting"])
 
 
 @router.post("/ballots", response_model=Union[dict, ChallengeResponse], status_code=status.HTTP_201_CREATED)
-def submit_ballot(request: SubmitVoteRequest) -> Union[dict, ChallengeResponse]:
+async def submit_ballot(request: SubmitVoteRequest) -> Union[dict, ChallengeResponse]:
     """
     Submit an encrypted ballot.
     Action can be CAST (store to ledger) or CHALLENGE (audit & destroy).
     """
     try:
-        result = vote_service.process_ballot(request)
+        result = await vote_service.process_ballot(request)
         return {"data": result} if isinstance(result, dict) else result
     except VotingError as e:
         raise HTTPException(

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from src.api.websockets import EventType, manager
+
 from src.core.crypto import DEMO_PRVK, DEMO_PUBK, decode_candidate, decrypt
 from src.core.voting import (
     compute_receipt_hash,
@@ -40,7 +42,7 @@ VALID_CODES = list(CODE_MAP.keys())
 _fake_credentials: set[str] = set()
 
 
-def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResponse:
+async def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResponse:
     """
     Process an incoming ballot submission.
     Handles both CAST and CHALLENGE actions.
@@ -81,6 +83,16 @@ def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResp
 
     _ledger.append(block)
     _seen_nonces.add(request.encrypted_ballot.nonce_id)
+
+    # Broadcast real-time update to hackathon observers
+    await manager.broadcast(
+        EventType.VOTE_CAST,
+        {
+            "vote_id": vote_id,
+            "timestamp": timestamp.isoformat(),
+            "receipt_hash": receipt_hash,
+        },
+    )
 
     return {"receipt_hash": receipt_hash, "vote_id": vote_id}
 
