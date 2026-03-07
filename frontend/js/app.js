@@ -154,19 +154,25 @@ function showQRCode(ballotHash, verificationUrl, candidateCode) {
     activateStep('step-qr');
     document.getElementById('qr-ballot-hash').textContent = ballotHash;
 
-    // Clear and generate new QR code
-    const qrCanvas = document.getElementById('qr-canvas');
-    qrCanvas.innerHTML = '';
-    new QRCode(qrCanvas, {
-        text: verificationUrl,
-        width: 200,
-        height: 200,
-        colorDark: '#2D2A26',
-        colorLight: '#FCFBF8',
-        correctLevel: QRCode.CorrectLevel.H,
+    // CRITICAL: switch view FIRST so the canvas is visible and has layout dimensions
+    // before qrcodejs tries to draw into it. On HTTPS deployments the library fails
+    // silently if the container is display:none when it initialises.
+    showView('qr');
+
+    // Use requestAnimationFrame to ensure the browser has completed the layout pass
+    requestAnimationFrame(() => {
+        const qrCanvas = document.getElementById('qr-canvas');
+        qrCanvas.innerHTML = '';
+        new QRCode(qrCanvas, {
+            text: verificationUrl,
+            width: 200,
+            height: 200,
+            colorDark: '#2D2A26',
+            colorLight: '#FCFBF8',
+            correctLevel: QRCode.CorrectLevel.H,
+        });
     });
 
-    showView('qr');
     startPollingForConfirmation(ballotHash);
 }
 
