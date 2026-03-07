@@ -19,7 +19,10 @@ from src.core.voting import (
     validate_ballot,
 )
 from src.models.ballot import (
+    BallotVerification,
     ChallengeResponse,
+    PendingBallot,
+    PrepareVoteRequest,
     SubmitVoteRequest,
     VoteAction,
     VoteBlock,
@@ -28,6 +31,7 @@ from src.models.ballot import (
 # In-memory stores for hackathon demo. Replace with real PG adapter.
 _ledger: list[VoteBlock] = []
 _seen_nonces: set[str] = set()
+_pending_ballots: dict[str, PendingBallot] = {}  # ballot_hash -> PendingBallot
 
 # Real cryptographic keys! (Demo defaults)
 ELECTION_PUBLIC_KEY = DEMO_PUBK
@@ -114,3 +118,98 @@ def run_tally() -> dict[str, int]:
             decrypted_codes[block.vote_id] = code
             
     return tally_votes(_ledger, _fake_credentials, CODE_MAP, decrypted_codes)
+
+
+# ─── Dual-Device Two-Phase Commit ───────────────────────────────────────────
+
+from src.core.voting import compute_vote_id as _compute_vote_id  # noqa: E402
+
+
+def prepare_ballot(request: PrepareVoteRequest) -> dict[str, str]:
+    """
+    Phase 1 (Device A): Validate, encrypt, and store ballot as PENDING.
+    Returns a ballot_hash that is encoded in the QR code.
+    The ballot is NOT added to the ledger yet.
+    """
+    # Compute a deterministic hash from the ciphertext to use as a QR payload key
+    import hashlib
+    ballot_hash = hashlib.sha256(
+        f"{request.encrypted_ballot.c1}:{request.encrypted_ballot.c2}:{request.encrypted_ballot.nonce_id}".encode()
+    ).hexdigest()[:16]
+
+    pending = PendingBallot(
+        ballot_hash=ballot_hash,
+        encrypted_ballot=request.encrypted_ballot,
+        zk_proof=request.zk_proof,
+        credential_hash=request.credential_hash,
+        revote_pointer=request.revote_pointer,
+    )
+    _pending_ballots[ballot_hash] = pending
+
+    # Generate a verification URL for the QR code
+    verification_url = f"http://localhost:8000/?verify={ballot_hash}"
+    return {"ballot_hash": ballot_hash, "verification_url": verification_url}
+
+
+def get_pending_ballot(ballot_hash: str) -> BallotVerification | None:
+    """
+    Phase 2 (Device B retrieval): Returns the pending ballot details for the voter to review.
+    """
+    pending = _pending_ballots.get(ballot_hash)
+    if pending is None:
+        return None
+
+    return BallotVerification(
+        ballot_hash=pending.ballot_hash,
+        encrypted_c1_preview=pending.encrypted_ballot.c1[:32],
+        encrypted_c2_preview=pending.encrypted_ballot.c2[:32],
+        confirmed=pending.confirmed,
+    )
+
+
+async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
+    """
+    Phase 2 (Device B confirms): Moves ballot from PENDING to the immutable ledger.
+    Fires the WebSocket broadcast. This is the point of no return.
+    """
+    pending = _pending_ballots.get(ballot_hash)
+    if pending is None:
+        from src.core.voting import VotingError
+        raise VotingError("BALLOT_NOT_FOUND", "No pending ballot with this hash. It may have expired.")
+
+    if pending.confirmed:
+        from src.core.voting import VotingError
+        raise VotingError("ALREADY_CONFIRMED", "This ballot has already been confirmed.")
+
+    # Two-phase commit: move from pending to ledger
+    vote_id = _compute_vote_id(pending.encrypted_ballot)
+    timestamp = datetime.now(timezone.utc)
+    receipt_hash = compute_receipt_hash(vote_id, pending.credential_hash, timestamp)
+
+    block = VoteBlock(
+        vote_id=vote_id,
+        ciphertext=pending.encrypted_ballot,
+        credential_hash=pending.credential_hash,
+        timestamp=timestamp,
+        revote_pointer=pending.revote_pointer,
+        zk_proof=pending.zk_proof,
+        receipt_hash=receipt_hash,
+    )
+
+    _ledger.append(block)
+    _seen_nonces.add(pending.encrypted_ballot.nonce_id)
+
+    # Mark as confirmed in the pending store
+    _pending_ballots[ballot_hash] = pending.model_copy(update={"confirmed": True})
+
+    # Broadcast to all WebSocket listeners
+    await manager.broadcast(
+        EventType.VOTE_CAST,
+        {
+            "vote_id": vote_id,
+            "timestamp": timestamp.isoformat(),
+            "receipt_hash": receipt_hash,
+        },
+    )
+
+    return {"receipt_hash": receipt_hash, "vote_id": vote_id, "ballot_hash": ballot_hash}

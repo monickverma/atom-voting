@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Atom Voting | Secure E-Voting</title>
-    <!-- Use Outfit font for a friendly, warm, modern aesthetic -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- QR Code generation library (CDN, no build step needed) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -20,6 +21,9 @@
             </svg>
             Atom Voting
         </div>
+        <div class="nav-pills">
+            <span class="pill" id="nav-device-label">Device A · Voting</span>
+        </div>
         <div class="nav-user" id="nav-user-status">
             <span class="status-dot"></span> Not Authenticated
         </div>
@@ -28,10 +32,11 @@
     <main class="container">
         <!-- LEFT PANEL: Voting Interface -->
         <section class="voting-panel">
-            
+
             <!-- VIEW 1: Login / Hardware Auth -->
             <div id="view-login" class="card view active">
                 <div class="card-header">
+                    <div class="card-header-icon">🔒</div>
                     <h2>Voter Authentication</h2>
                     <p>Insert your security key or use biometric verification to prove your identity.</p>
                 </div>
@@ -45,60 +50,88 @@
                     <button id="btn-authenticate" class="btn btn-primary btn-large">
                         Authenticate with Hardware Key
                     </button>
-                    <p class="helper-text">Powered by FIDO2 / WebAuthn</p>
+                    <p class="helper-text">Powered by FIDO2 / WebAuthn · No passwords ever</p>
                 </div>
             </div>
 
             <!-- VIEW 2: Cast Ballot -->
             <div id="view-vote" class="card view">
                 <div class="card-header">
+                    <div class="card-header-icon">🗳️</div>
                     <h2>Cast Your Ballot</h2>
-                    <p>Enter the numeric code from your secure Code Sheet. Do not vote by name.</p>
+                    <p>Enter the numeric code from your secure Code Sheet. <strong>Do not vote by name.</strong></p>
                 </div>
                 <div class="card-body">
                     <form id="vote-form">
                         <div class="input-group">
                             <label for="candidate-code">Candidate Code</label>
                             <input type="number" id="candidate-code" placeholder="e.g. 4427" required autocomplete="off">
-                            <span class="input-hint">Reference your physical code sheet (Phase 0).</span>
+                            <span class="input-hint">Reference your physical code sheet. Available codes: <strong>4427, 8391, 9102</strong></span>
                         </div>
-                        
+
                         <div class="cryptography-status">
-                            <div class="crypto-step">
+                            <div class="crypto-step" id="step-encrypt">
                                 <span class="step-indicator">1</span>
                                 <span>2048-bit ElGamal Encryption</span>
                             </div>
-                            <div class="crypto-step">
+                            <div class="crypto-step" id="step-zkp">
                                 <span class="step-indicator">2</span>
                                 <span>Disjunctive ZK Proof Generation</span>
+                            </div>
+                            <div class="crypto-step" id="step-qr">
+                                <span class="step-indicator">3</span>
+                                <span>QR Code — Awaiting Device B Verification</span>
                             </div>
                         </div>
 
                         <div class="action-buttons">
-                            <button type="submit" class="btn btn-primary" id="btn-cast">Cast Vote</button>
+                            <button type="submit" class="btn btn-primary" id="btn-cast">
+                                Encrypt &amp; Generate QR
+                            </button>
                             <button type="button" class="btn btn-secondary tooltip" id="btn-challenge">
                                 Audit / Challenge
-                                <span class="tooltiptext">Destroys ballot and reveals code to prove server honesty.</span>
+                                <span class="tooltiptext">Destroys ballot and reveals code to prove the server is honest.</span>
                             </button>
                         </div>
                     </form>
                 </div>
             </div>
 
-            <!-- VIEW 3: Receipt -->
+            <!-- VIEW 3: QR Code (Device A) -->
+            <div id="view-qr" class="card view">
+                <div class="card-header">
+                    <div class="card-header-icon">📱</div>
+                    <h2>Scan on Device B</h2>
+                    <p>Show this QR code to your independent verification device. Your vote is <strong>NOT</strong> on the ledger yet.</p>
+                </div>
+                <div class="card-body qr-body">
+                    <div id="qr-canvas" class="qr-canvas"></div>
+                    <div class="qr-info">
+                        <p class="qr-hash-label">Ballot Hash</p>
+                        <code id="qr-ballot-hash" class="qr-hash-value">--</code>
+                    </div>
+                    <div id="qr-status-box" class="qr-status-box waiting">
+                        <span class="pulse-dot"></span>
+                        <span id="qr-status-text">Waiting for Device B to confirm...</span>
+                    </div>
+                    <p class="helper-text">Device B must independently verify your ballot before it is recorded.</p>
+                </div>
+            </div>
+
+            <!-- VIEW 4: Receipt (after Device B confirms) -->
             <div id="view-receipt" class="card view">
                 <div class="card-header success">
                     <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                         <polyline points="22 4 12 14.01 9 11.01"></polyline>
                     </svg>
-                    <h2>Ballot Encrypted & Cast</h2>
-                    <p>Your vote is secured on the immutable ledger.</p>
+                    <h2>Vote Verified &amp; Recorded</h2>
+                    <p>Device B confirmed your ballot. It is now sealed on the immutable public ledger.</p>
                 </div>
                 <div class="card-body">
                     <div class="receipt-box">
                         <div class="receipt-row">
-                            <span class="receipt-label">Vote ID</span>
+                            <span class="receipt-label">Ballot Tracker ID</span>
                             <span class="receipt-value monospace" id="receipt-vote-id">--</span>
                         </div>
                         <div class="receipt-row">
@@ -106,8 +139,53 @@
                             <span class="receipt-value monospace" id="receipt-hash">--</span>
                         </div>
                     </div>
-                    <p class="audit-note">Keep this receipt. You can use it to verify your ballot was included in the final mixnet tally.</p>
+                    <p class="audit-note">Keep this receipt. You can verify your ballot is in the final public ledger using this Tracker ID.</p>
                     <button id="btn-vote-again" class="btn btn-outline">Submit Revote (Coercion Escape)</button>
+                </div>
+            </div>
+
+            <!-- VIEW 5: Device B — Verify Ballot -->
+            <div id="view-verify" class="card view">
+                <div class="card-header">
+                    <div class="card-header-icon">🔍</div>
+                    <h2>Device B — Verify Ballot</h2>
+                    <p>You are the independent verification device. Review this ballot carefully before confirming.</p>
+                </div>
+                <div class="card-body">
+                    <div class="verify-box">
+                        <div class="verify-row">
+                            <span class="verify-label">Ballot Hash</span>
+                            <code class="verify-value" id="verify-hash">--</code>
+                        </div>
+                        <div class="verify-row">
+                            <span class="verify-label">Encrypted Ciphertext C1 (preview)</span>
+                            <code class="verify-value" id="verify-c1">--</code>
+                        </div>
+                        <div class="verify-row">
+                            <span class="verify-label">Encrypted Ciphertext C2 (preview)</span>
+                            <code class="verify-value" id="verify-c2">--</code>
+                        </div>
+                        <div class="verify-candidate-box">
+                            <p class="verify-candidate-label">Your vote corresponds to:</p>
+                            <p class="verify-candidate-name" id="verify-candidate-name">Unknown Code</p>
+                            <p class="verify-candidate-sub">Decoded from code sheet. Verify this is correct.</p>
+                        </div>
+                    </div>
+
+                    <div id="verify-status" class="verify-status-pending">
+                        <p>Is this your intended vote?</p>
+                        <div class="action-buttons">
+                            <button id="btn-confirm-vote" class="btn btn-primary">✓ Confirm &amp; Submit to Ledger</button>
+                            <button id="btn-reject-vote" class="btn btn-danger">✗ Reject — Vote is Wrong</button>
+                        </div>
+                    </div>
+                    <div id="verify-confirmed-msg" class="verify-confirmed hidden">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                        <p>Vote confirmed! The ballot has been submitted to the public ledger. Device A will show the receipt.</p>
+                    </div>
                 </div>
             </div>
 
@@ -122,13 +200,12 @@
                 </div>
             </div>
             <div class="ledger-list" id="ledger-list">
-                <!-- Javascript will populate this via WebSockets -->
-                <div class="empty-state">Waiting for votes...</div>
+                <div class="empty-state">Waiting for confirmed votes...</div>
             </div>
         </section>
     </main>
 
-    <!-- Overlay Loading Spinner for Crypto Ops -->
+    <!-- Overlay Loading Spinner -->
     <div id="loading-overlay" class="overlay hidden">
         <div class="spinner"></div>
         <p id="loading-text">Generating Cryptographic Proofs...</p>

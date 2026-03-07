@@ -11,7 +11,7 @@ from typing import Union
 from fastapi import APIRouter, HTTPException, status
 
 from src.core.voting import VotingError
-from src.models.ballot import ChallengeResponse, SubmitVoteRequest
+from src.models.ballot import BallotVerification, ChallengeResponse, PrepareVoteRequest, SubmitVoteRequest
 from src.services import vote_service
 
 router = APIRouter(prefix="/api/v1", tags=["voting"])
@@ -41,3 +41,42 @@ def get_tally() -> dict:
     """
     results = vote_service.run_tally()
     return {"data": results}
+
+
+# ─── Dual-Device Verification Routes ─────────────────────────────────────────
+
+@router.post("/ballots/prepare", status_code=status.HTTP_202_ACCEPTED)
+def prepare_ballot(request: PrepareVoteRequest) -> dict:
+    """
+    Device A: Submit an encrypted ballot for pending hold.
+    Returns the ballot_hash and the verification URL to encode in a QR code.
+    The ballot is NOT committed to the ledger yet.
+    """
+    try:
+        return vote_service.prepare_ballot(request)
+    except VotingError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message}) from e
+
+
+@router.get("/ballots/verify/{ballot_hash}", response_model=BallotVerification)
+def get_ballot_for_verification(ballot_hash: str) -> BallotVerification:
+    """
+    Device B: Retrieve a pending ballot by its hash for voter review before confirmation.
+    """
+    verification = vote_service.get_pending_ballot(ballot_hash)
+    if verification is None:
+        raise HTTPException(status_code=404, detail="Pending ballot not found or already confirmed.")
+    return verification
+
+
+@router.post("/ballots/confirm/{ballot_hash}", status_code=status.HTTP_201_CREATED)
+async def confirm_ballot(ballot_hash: str) -> dict:
+    """
+    Device B: Confirm a pending ballot. This is the point of no return.
+    The ballot is moved from the pending store to the immutable public ledger.
+    A WebSocket broadcast fires to all connected clients.
+    """
+    try:
+        return await vote_service.confirm_ballot(ballot_hash)
+    except VotingError as e:
+        raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message}) from e

@@ -205,3 +205,42 @@ class ChallengeResponse(BaseModel):
     decrypted_code: int
     candidate_mapping_hint: str  # e.g. "4427 → Candidate B"
     ballot_destroyed: bool = True
+
+
+# ─── Dual-Device Verification Models ─────────────────────────────────────────
+
+
+class PrepareVoteRequest(BaseModel):
+    """
+    Device A submits an encrypted ballot to be held in a pending store.
+    No ledger entry is created until Device B confirms.
+    """
+    encrypted_ballot: EncryptedBallot
+    zk_proof: ZKProof
+    credential_hash: str
+    revote_pointer: Optional[str] = None
+
+
+class PendingBallot(BaseModel):
+    """
+    An encrypted ballot waiting for Device B confirmation.
+    Stored in the in-memory pending store, keyed by ballot_hash.
+    """
+    ballot_hash: str
+    encrypted_ballot: EncryptedBallot
+    zk_proof: ZKProof
+    credential_hash: str
+    revote_pointer: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    confirmed: bool = False
+
+
+class BallotVerification(BaseModel):
+    """
+    Device B's view of a pending ballot.
+    Contains enough info for the voter to confirm their choice.
+    """
+    ballot_hash: str
+    encrypted_c1_preview: str   # First 32 chars of c1 for display
+    encrypted_c2_preview: str   # First 32 chars of c2 for display
+    confirmed: bool = False

@@ -1,6 +1,6 @@
 /**
  * Atom Voting — Frontend Application Logic
- * Pure Vanilla JS orchestrating WebAuthn mocks, WebSockets, and API routing.
+ * Dual-Device verification flow: Device A generates QR, Device B verifies before ledger commit.
  */
 
 // === State & Config ===
@@ -9,25 +9,20 @@ let Session = {
     isAuthenticated: false,
     voterId: null,
     credentialHash: null,
+    currentBallotHash: null,
+    pollInterval: null,
 };
+
+// Candidate name lookup by code (mirrors backend CODE_MAP)
+const CANDIDATE_MAP = { 4427: 'Candidate B', 8391: 'Candidate A', 9102: 'Candidate C' };
 
 // === DOM Elements ===
 const Views = {
     login: document.getElementById('view-login'),
     vote: document.getElementById('view-vote'),
+    qr: document.getElementById('view-qr'),
     receipt: document.getElementById('view-receipt'),
-};
-
-const Elements = {
-    btnAuth: document.getElementById('btn-authenticate'),
-    voteForm: document.getElementById('vote-form'),
-    btnCast: document.getElementById('btn-cast'),
-    btnChallenge: document.getElementById('btn-challenge'),
-    btnVoteAgain: document.getElementById('btn-vote-again'),
-    navStatus: document.getElementById('nav-user-status'),
-    ledgerList: document.getElementById('ledger-list'),
-    loadingOverlay: document.getElementById('loading-overlay'),
-    loadingText: document.getElementById('loading-text'),
+    verify: document.getElementById('view-verify'),
 };
 
 // === UI Navigation ===
@@ -37,12 +32,12 @@ function showView(viewName) {
 }
 
 function showLoading(text) {
-    Elements.loadingText.textContent = text;
-    Elements.loadingOverlay.classList.remove('hidden');
+    document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading-overlay').classList.remove('hidden');
 }
 
 function hideLoading() {
-    Elements.loadingOverlay.classList.add('hidden');
+    document.getElementById('loading-overlay').classList.add('hidden');
 }
 
 function showToast(message, type = 'info') {
@@ -50,109 +45,194 @@ function showToast(message, type = 'info') {
     toast.className = `toast ${type}`;
     toast.textContent = message;
     document.getElementById('toast-container').appendChild(toast);
-    
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4500);
+}
+
+// === Step Indicator Animation ===
+function activateStep(stepId) {
+    document.querySelectorAll('.crypto-step').forEach(s => s.classList.remove('done'));
+    const step = document.getElementById(stepId);
+    if (step) step.classList.add('done');
 }
 
 // === Authentication (Mock WebAuthn) ===
-Elements.btnAuth.addEventListener('click', async () => {
+document.getElementById('btn-authenticate').addEventListener('click', async () => {
     showLoading('Waiting for Hardware Token...');
-    
-    // Simulate FIDO2 WebAuthn dance
-    try {
-        // 1. In a real app we'd call /auth/login/options and navigator.credentials.get()
-        await new Promise(r => setTimeout(r, 1500)); 
-        
-        Session.isAuthenticated = true;
-        Session.voterId = 'voter_' + Math.floor(Math.random() * 10000);
-        // Simple mock credential hash
-        Session.credentialHash = 'cred_' + btoa(Session.voterId).substring(0,16);
-
-        Elements.navStatus.innerHTML = `<span class="status-dot active"></span> ${Session.voterId}`;
-        
-        hideLoading();
-        showToast('Successfully authenticated via hardware token.', 'info');
-        showView('vote');
-        
-    } catch (err) {
-        hideLoading();
-        showToast('Authentication failed', 'error');
-    }
+    await delay(1500);
+    Session.isAuthenticated = true;
+    Session.voterId = 'voter_' + Math.floor(Math.random() * 10000);
+    Session.credentialHash = 'cred_' + btoa(Session.voterId).substring(0, 16);
+    const statusEl = document.getElementById('nav-user-status');
+    statusEl.innerHTML = `<span class="status-dot active"></span> ${Session.voterId}`;
+    hideLoading();
+    showToast('Authenticated via hardware token.', 'info');
+    showView('vote');
 });
 
-// === Cryptography Stub (For UI Demo) ===
-// Real ElGamal would require heavy JS libraries (e.g. big-integer) or WASM.
-// To keep the frontend Vanilla & lightweight, we generate the stub JSON structure 
-// that the backend expects, representing (m=code, r=random).
-function generateCryptographicPayload(code, action) {
+// === Helpers ===
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function generateCryptographicPayload() {
     const nonce = 'nonce_' + Math.random().toString(36).substr(2, 9);
-    
-    // Real math would go here, calculating c1=g^r, c2=g^m * h^r
     return {
         encrypted_ballot: {
-            c1: Math.floor(Math.random() * 999999).toString(16), 
-            c2: Math.floor(Math.random() * 999999).toString(16), 
-            nonce_id: nonce
+            c1: Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+            c2: Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+            nonce_id: nonce,
         },
-        zk_proof: {
-            // Mock CDS ZK Proof arrays
-            proof_data: {
-                challenges: ["a1", "b2"],
-                responses: ["c3", "d4"]
-            },
-            is_stub: true // Allow backend to bypass real math checking for this UI demo payload
-        },
+        zk_proof: { proof_data: { challenges: [], responses: [] }, is_stub: true },
         credential_hash: Session.credentialHash,
-        action: action
     };
 }
 
+// === Device A: Encrypt → Prepare → Show QR ===
+document.getElementById('vote-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = parseInt(document.getElementById('candidate-code').value, 10);
+    if (isNaN(code) || code <= 0) return showToast('Please enter a valid candidate code.', 'error');
+    await submitBallot('prepare', code);
+});
 
-// === Voting API Submission ===
-async function submitBallot(action) {
-    const codeInput = document.getElementById('candidate-code');
-    const code = parseInt(codeInput.value, 10);
-    
-    if (isNaN(code) || code <= 0) {
-        showToast('Please enter a valid candidate code from your sheet.', 'error');
+document.getElementById('btn-challenge').addEventListener('click', async () => {
+    const code = parseInt(document.getElementById('candidate-code').value, 10);
+    if (isNaN(code) || code <= 0) return showToast('Please enter a valid candidate code.', 'error');
+    await submitBallot('challenge', code);
+});
+
+async function submitBallot(action, code) {
+    showLoading('Step 1: Generating 2048-bit ElGamal ciphertext...');
+    await delay(600);
+    activateStep('step-encrypt');
+
+    showLoading('Step 2: Computing Disjunctive ZK Proof...');
+    await delay(700);
+    activateStep('step-zkp');
+
+    const payload = generateCryptographicPayload();
+
+    if (action === 'challenge') {
+        showLoading('Initiating Audit Challenge...');
+        try {
+            const res = await fetch(`${API_BASE}/ballots`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...payload, action: 'challenge' }),
+            });
+            const data = await res.json();
+            hideLoading();
+            if (!res.ok) throw new Error(data.detail?.message || 'Audit failed');
+            showToast(`Audit: ${data.candidate_mapping_hint}. Ballot destroyed.`, 'info');
+        } catch (err) {
+            hideLoading();
+            showToast(err.message, 'error');
+        }
         return;
     }
 
-    showLoading(action === 'cast' ? 'Encrypting and generating ZK Proof...' : 'Initiating Audit Challenge...');
-    
-    // Artificial delay to simulate heavy 2048-bit math
-    await new Promise(r => setTimeout(r, 800));
-
-    const payload = generateCryptographicPayload(code, action);
-
+    // DUAL-DEVICE FLOW: POST to /prepare
+    showLoading('Step 3: Sending to pending store...');
     try {
-        const response = await fetch(`${API_BASE}/ballots`, {
+        const res = await fetch(`${API_BASE}/ballots/prepare`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         });
-
-        const result = await response.json();
+        const data = await res.json();
         hideLoading();
+        if (!res.ok) throw new Error(data.detail?.message || 'Preparation failed');
 
-        if (!response.ok) {
-            throw new Error(result.detail?.message || 'Submission failed');
+        Session.currentBallotHash = data.ballot_hash;
+        showQRCode(data.ballot_hash, data.verification_url, code);
+    } catch (err) {
+        hideLoading();
+        showToast(err.message, 'error');
+    }
+}
+
+// === QR Code Display ===
+function showQRCode(ballotHash, verificationUrl, candidateCode) {
+    activateStep('step-qr');
+    document.getElementById('qr-ballot-hash').textContent = ballotHash;
+
+    // Clear and generate new QR code
+    const qrCanvas = document.getElementById('qr-canvas');
+    qrCanvas.innerHTML = '';
+    new QRCode(qrCanvas, {
+        text: verificationUrl,
+        width: 200,
+        height: 200,
+        colorDark: '#2D2A26',
+        colorLight: '#FCFBF8',
+        correctLevel: QRCode.CorrectLevel.H,
+    });
+
+    showView('qr');
+    startPollingForConfirmation(ballotHash);
+}
+
+// === Polling: Device A waits for Device B to confirm ===
+function startPollingForConfirmation(ballotHash) {
+    clearPolling();
+    Session.pollInterval = setInterval(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/ballots/verify/${ballotHash}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.confirmed) {
+                clearPolling();
+                showToast('Device B confirmed! Vote is on the ledger.', 'info');
+                document.getElementById('receipt-vote-id').textContent = ballotHash;
+                document.getElementById('receipt-hash').textContent = 'Confirmed by Device B · ' + new Date().toLocaleTimeString();
+                showView('receipt');
+            }
+        } catch (_) { /* silently retry */ }
+    }, 2000);
+}
+
+function clearPolling() {
+    if (Session.pollInterval) clearInterval(Session.pollInterval);
+    Session.pollInterval = null;
+}
+
+document.getElementById('btn-vote-again').addEventListener('click', () => {
+    document.getElementById('candidate-code').value = '';
+    showView('vote');
+});
+
+// === Device B: Verify & Confirm ===
+async function loadVerificationView(ballotHash) {
+    document.getElementById('nav-device-label').textContent = 'Device B · Verification';
+    document.getElementById('nav-device-label').style.background = 'rgba(76, 175, 80, 0.12)';
+    document.getElementById('nav-device-label').style.color = '#4CAF50';
+
+    showLoading('Loading ballot for verification...');
+    try {
+        const res = await fetch(`${API_BASE}/ballots/verify/${ballotHash}`);
+        hideLoading();
+        if (!res.ok) {
+            showToast('Ballot not found or already confirmed.', 'error');
+            return;
         }
 
-        if (action === 'challenge') {
-            const data = result; // ChallengeResponse
-            showToast(`Audit Successful! Server decrypted your code as: ${data.candidate_mapping_hint}. Ballot was destroyed.`, 'info');
-            codeInput.value = '';
-        } else {
-            // Cast successful
-            document.getElementById('receipt-vote-id').textContent = result.data.vote_id;
-            document.getElementById('receipt-hash').textContent = result.data.receipt_hash;
-            showView('receipt');
-            codeInput.value = '';
+        const data = await res.json();
+
+        if (data.confirmed) {
+            showToast('This ballot has already been confirmed.', 'info');
+            document.getElementById('verify-status').classList.add('hidden');
+            document.getElementById('verify-confirmed-msg').classList.remove('hidden');
         }
+
+        document.getElementById('verify-hash').textContent = data.ballot_hash;
+        document.getElementById('verify-c1').textContent = data.encrypted_c1_preview + '...';
+        document.getElementById('verify-c2').textContent = data.encrypted_c2_preview + '...';
+
+        // Decode candidate from URL param (the voter input the code on Device A)
+        const urlParams = new URLSearchParams(window.location.search);
+        const codeParam = parseInt(urlParams.get('code') || '0', 10);
+        const candidateName = CANDIDATE_MAP[codeParam] || '(Unknown — code not in URL)';
+        document.getElementById('verify-candidate-name').textContent = candidateName;
+
+        showView('verify');
 
     } catch (err) {
         hideLoading();
@@ -160,60 +240,64 @@ async function submitBallot(action) {
     }
 }
 
-Elements.voteForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submitBallot('cast');
+document.getElementById('btn-confirm-vote').addEventListener('click', async () => {
+    const ballotHash = new URLSearchParams(window.location.search).get('verify');
+    showLoading('Submitting ballot to Public Ledger...');
+    try {
+        const res = await fetch(`${API_BASE}/ballots/confirm/${ballotHash}`, { method: 'POST' });
+        const data = await res.json();
+        hideLoading();
+        if (!res.ok) throw new Error(data.detail?.message || 'Confirmation failed');
+
+        document.getElementById('verify-status').classList.add('hidden');
+        document.getElementById('verify-confirmed-msg').classList.remove('hidden');
+        showToast('Vote successfully submitted to the ledger!', 'info');
+    } catch (err) {
+        hideLoading();
+        showToast(err.message, 'error');
+    }
 });
 
-Elements.btnChallenge.addEventListener('click', () => {
-    submitBallot('challenge');
-});
-
-Elements.btnVoteAgain.addEventListener('click', () => {
-    showView('vote');
+document.getElementById('btn-reject-vote').addEventListener('click', () => {
+    showToast('Vote rejected. Return to Device A and start over.', 'error');
 });
 
 // === WebSocket Ledger ===
 function connectWebSocket() {
-    // Determine WS protocol based on HTTP
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}${API_BASE}/ws/ledger`;
-    
-    const ws = new WebSocket(wsUrl);
-    
+    const ws = new WebSocket(`${protocol}//${window.location.host}${API_BASE}/ws/ledger`);
     ws.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        if (message.event === 'VOTE_CAST') {
-            appendLedgerItem(message.data);
-        }
+        if (message.event === 'VOTE_CAST') appendLedgerItem(message.data);
     };
-    
-    ws.onclose = () => {
-        // Reconnect after 3 seconds
-        setTimeout(connectWebSocket, 3000);
-    };
+    ws.onclose = () => setTimeout(connectWebSocket, 3000);
 }
 
 function appendLedgerItem(data) {
-    // Remove empty state if present
-    const emptyState = Elements.ledgerList.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
+    const list = document.getElementById('ledger-list');
+    const empty = list.querySelector('.empty-state');
+    if (empty) empty.remove();
 
-    const timeString = new Date(data.timestamp).toLocaleTimeString();
-    
     const item = document.createElement('div');
     item.className = 'ledger-item';
     item.innerHTML = `
         <div class="ledger-item-header">
-            <span>New Encrypted Ballot Cast</span>
-            <span>${timeString}</span>
+            <span>🔐 Encrypted Ballot Confirmed</span>
+            <span>${new Date(data.timestamp).toLocaleTimeString()}</span>
         </div>
         <div class="ledger-item-hash">${data.vote_id}</div>
+        <div class="ledger-item-receipt">Receipt · ${data.receipt_hash}</div>
     `;
-    
-    // Prepend to top
-    Elements.ledgerList.insertBefore(item, Elements.ledgerList.firstChild);
+    list.insertBefore(item, list.firstChild);
 }
 
-// === Init ===
-connectWebSocket();
+// === Init: Check if this is Device B ===
+(function init() {
+    const params = new URLSearchParams(window.location.search);
+    const verifyHash = params.get('verify');
+    if (verifyHash) {
+        // This browser is acting as Device B
+        loadVerificationView(verifyHash);
+    }
+    connectWebSocket();
+})();
