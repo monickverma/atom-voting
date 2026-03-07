@@ -125,7 +125,7 @@ def run_tally() -> dict[str, int]:
 from src.core.voting import compute_vote_id as _compute_vote_id  # noqa: E402
 
 
-def prepare_ballot(request: PrepareVoteRequest) -> dict[str, str]:
+def prepare_ballot(request: PrepareVoteRequest, base_url: str = "http://localhost:8000") -> dict[str, str]:
     """
     Phase 1 (Device A): Validate, encrypt, and store ballot as PENDING.
     Returns a ballot_hash that is encoded in the QR code.
@@ -146,8 +146,8 @@ def prepare_ballot(request: PrepareVoteRequest) -> dict[str, str]:
     )
     _pending_ballots[ballot_hash] = pending
 
-    # Generate a verification URL for the QR code
-    verification_url = f"http://localhost:8000/?verify={ballot_hash}"
+    # Use the actual server base_url so QR works from any device on the network
+    verification_url = f"{base_url}/?verify={ballot_hash}"
     return {"ballot_hash": ballot_hash, "verification_url": verification_url}
 
 

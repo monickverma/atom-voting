@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Union
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from src.core.voting import VotingError
 from src.models.ballot import BallotVerification, ChallengeResponse, PrepareVoteRequest, SubmitVoteRequest
@@ -46,14 +46,15 @@ def get_tally() -> dict:
 # ─── Dual-Device Verification Routes ─────────────────────────────────────────
 
 @router.post("/ballots/prepare", status_code=status.HTTP_202_ACCEPTED)
-def prepare_ballot(request: PrepareVoteRequest) -> dict:
+def prepare_ballot(request: PrepareVoteRequest, http_request: Request) -> dict:
     """
     Device A: Submit an encrypted ballot for pending hold.
     Returns the ballot_hash and the verification URL to encode in a QR code.
     The ballot is NOT committed to the ledger yet.
     """
     try:
-        return vote_service.prepare_ballot(request)
+        base_url = str(http_request.base_url).rstrip("/")
+        return vote_service.prepare_ballot(request, base_url=base_url)
     except VotingError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message}) from e
 
