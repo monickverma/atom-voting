@@ -201,23 +201,41 @@ document.getElementById('btn-vote-again').addEventListener('click', () => {
 
 // === Device B: Verify & Confirm ===
 async function loadVerificationView(ballotHash) {
-    document.getElementById('nav-device-label').textContent = 'Device B · Verification';
+    // Immediately switch to Device B mode UI
+    document.getElementById('nav-device-label').textContent = 'Device B \u00b7 Verification';
     document.getElementById('nav-device-label').style.background = 'rgba(76, 175, 80, 0.12)';
     document.getElementById('nav-device-label').style.color = '#4CAF50';
+    showView('verify');
 
-    showLoading('Loading ballot for verification...');
+    // Show loading state in the verify box
+    document.getElementById('verify-hash').textContent = ballotHash;
+    document.getElementById('verify-c1').textContent = 'Fetching...';
+    document.getElementById('verify-c2').textContent = 'Fetching...';
+    document.getElementById('verify-candidate-name').textContent = '...';
+    document.getElementById('verify-candidate-name').style.color = ''; // Reset color
+    document.querySelector('.verify-candidate-sub').textContent = 'Confirm the candidate code matches your selection on Device A.';
+    document.getElementById('verify-status').classList.remove('hidden');
+    document.getElementById('verify-confirmed-msg').classList.add('hidden');
+
+
     try {
         const res = await fetch(`${API_BASE}/ballots/verify/${ballotHash}`);
-        hideLoading();
+
         if (!res.ok) {
-            showToast('Ballot not found or already confirmed.', 'error');
+            // Ballot not found - show clear error within the verify view
+            document.getElementById('verify-c1').textContent = '\u2014';
+            document.getElementById('verify-c2').textContent = '\u2014';
+            document.getElementById('verify-candidate-name').textContent = 'Not Found';
+            document.getElementById('verify-candidate-name').style.color = 'var(--danger-color)';
+            document.querySelector('.verify-candidate-sub').textContent = 'This ballot hash is invalid or already confirmed. Check the QR code again.';
+            document.getElementById('verify-status').classList.add('hidden');
+            showToast('Ballot not found. Use the hash from the current QR code on Device A.', 'error');
             return;
         }
 
         const data = await res.json();
 
         if (data.confirmed) {
-            showToast('This ballot has already been confirmed.', 'info');
             document.getElementById('verify-status').classList.add('hidden');
             document.getElementById('verify-confirmed-msg').classList.remove('hidden');
         }
@@ -226,16 +244,13 @@ async function loadVerificationView(ballotHash) {
         document.getElementById('verify-c1').textContent = data.encrypted_c1_preview + '...';
         document.getElementById('verify-c2').textContent = data.encrypted_c2_preview + '...';
 
-        // Decode candidate from URL param (the voter input the code on Device A)
+        // Decode candidate from URL param
         const urlParams = new URLSearchParams(window.location.search);
         const codeParam = parseInt(urlParams.get('code') || '0', 10);
-        const candidateName = CANDIDATE_MAP[codeParam] || '(Unknown — code not in URL)';
+        const candidateName = CANDIDATE_MAP[codeParam] || 'Verify on your code sheet';
         document.getElementById('verify-candidate-name').textContent = candidateName;
 
-        showView('verify');
-
     } catch (err) {
-        hideLoading();
         showToast(err.message, 'error');
     }
 }
