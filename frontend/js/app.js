@@ -11,6 +11,8 @@ let Session = {
     credentialHash: null,
     currentBallotHash: null,
     pollInterval: null,
+    pollNonce: 0,        // Incremented every new vote — guards stale poll callbacks
+    qrShownAt: 0,       // Timestamp (ms) when QR view was shown
 };
 
 // Candidate name lookup by code (mirrors backend CODE_MAP)
@@ -158,6 +160,7 @@ function showQRCode(ballotHash, verificationUrl, candidateCode) {
     // before qrcodejs tries to draw into it. On HTTPS deployments the library fails
     // silently if the container is display:none when it initialises.
     showView('qr');
+    Session.qrShownAt = Date.now(); // record when QR was first displayed
 
     // Use requestAnimationFrame to ensure the browser has completed the layout pass
     requestAnimationFrame(() => {
@@ -179,16 +182,29 @@ function showQRCode(ballotHash, verificationUrl, candidateCode) {
 // === Polling: Device A waits for Device B to confirm ===
 function startPollingForConfirmation(ballotHash) {
     clearPolling();
+    // Capture a unique nonce for this poll session.
+    // If another vote starts (incrementing pollNonce), all callbacks from THIS
+    // poll session will be ignored even if they fire before clearInterval runs.
+    const myNonce = ++Session.pollNonce;
+
     Session.pollInterval = setInterval(async () => {
+        // Guard: ignore this callback if a newer poll session has started
+        if (Session.pollNonce !== myNonce) return;
+
+        // Guard: don't transition away from the QR view within 4 seconds of showing it.
+        // This prevents fast-firing polls from skipping the QR entirely.
+        const msOnQrView = Date.now() - Session.qrShownAt;
+        if (msOnQrView < 4000) return;
+
         try {
             const res = await fetch(`${API_BASE}/ballots/verify/${ballotHash}`);
             if (!res.ok) return;
             const data = await res.json();
-            if (data.confirmed) {
+            if (data.confirmed && Session.pollNonce === myNonce) {
                 clearPolling();
                 showToast('Device B confirmed! Vote is on the ledger.', 'info');
                 document.getElementById('receipt-vote-id').textContent = ballotHash;
-                document.getElementById('receipt-hash').textContent = 'Confirmed by Device B · ' + new Date().toLocaleTimeString();
+                document.getElementById('receipt-hash').textContent = 'Confirmed by Device B \u00b7 ' + new Date().toLocaleTimeString();
                 showView('receipt');
             }
         } catch (_) { /* silently retry */ }
