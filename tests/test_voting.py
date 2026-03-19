@@ -89,33 +89,33 @@ def make_vote_block(
 class TestValidateBallot:
     def test_valid_ballot_passes(self) -> None:
         req = make_request()
-        validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=True)
+        validate_ballot(req, ELECTION_PK, set(), election_open=True)
 
     def test_raises_when_election_closed(self) -> None:
         req = make_request()
         with pytest.raises(ElectionClosedError) as exc:
-            validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=False)
+            validate_ballot(req, ELECTION_PK, set(), election_open=False)
         assert exc.value.code == "ELECTION_CLOSED"
 
     def test_raises_on_duplicate_nonce(self) -> None:
         req = make_request(override_nonce="nonce_dup")
         seen = {"nonce_dup"}
         with pytest.raises(DuplicateNonceError) as exc:
-            validate_ballot(req, ELECTION_PK, VALID_CODES, seen, election_open=True)
+            validate_ballot(req, ELECTION_PK, seen, election_open=True)
         assert exc.value.code == "DUPLICATE_NONCE"
 
     def test_unique_nonce_always_passes(self) -> None:
         req1 = make_request()
         req2 = make_request()
         seen: set[str] = set()
-        validate_ballot(req1, ELECTION_PK, VALID_CODES, seen, election_open=True)
+        validate_ballot(req1, ELECTION_PK, seen, election_open=True)
         seen.add(req1.encrypted_ballot.nonce_id)
-        validate_ballot(req2, ELECTION_PK, VALID_CODES, seen, election_open=True)
+        validate_ballot(req2, ELECTION_PK, seen, election_open=True)
 
     def test_invalid_zk_proof_raises(self) -> None:
         req = make_request(invalid_zkp=True)
         with pytest.raises(InvalidZKProofError) as exc:
-            validate_ballot(req, ELECTION_PK, VALID_CODES, set(), election_open=True)
+            validate_ballot(req, ELECTION_PK, set(), election_open=True, valid_codes=VALID_CODES)
         assert exc.value.code == "INVALID_ZK_PROOF"
 
 

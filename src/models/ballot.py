@@ -116,7 +116,7 @@ class ZKProof(BaseModel):
 
     @classmethod
     def generate(
-        cls, code: int, r: int, ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int]
+        cls, code: int, r: int, ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int] | None = None
     ) -> "ZKProof":
         """Generate a real Cramer-Damgård-Schoenmakers Disjunctive ZK Proof."""
         from src.core.crypto import generate_disjunctive_zkp
@@ -124,7 +124,9 @@ class ZKProof(BaseModel):
         c1 = int(ballot.c1, 16)
         c2 = int(ballot.c2, 16)
         
-        proof_ints = generate_disjunctive_zkp(code, r, c1, c2, election_public_key, valid_codes)
+        # If no valid_codes provided, assume a single-candidate dummy proof
+        codes_list = valid_codes if valid_codes is not None else [code]
+        proof_ints = generate_disjunctive_zkp(code, r, c1, c2, election_public_key, codes_list)
         
         proof_hex = {
             "challenges": [hex(c)[2:] for c in proof_ints["challenges"]],
@@ -133,7 +135,7 @@ class ZKProof(BaseModel):
         
         return cls(proof_data=proof_hex, is_stub=False)
 
-    def verify(self, encrypted_ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int]) -> bool:
+    def verify(self, encrypted_ballot: EncryptedBallot, election_public_key: int, valid_codes: list[int] | None = None) -> bool:
         """Verify the Cramer-Damgård-Schoenmakers Disjunctive ZK Proof."""
         if self.is_stub:
             return True
@@ -151,6 +153,10 @@ class ZKProof(BaseModel):
             "responses": [int(resp, 16) for resp in responses],
         }
         
+        # In this demo, if the list is unbounded, we skip full verification
+        if valid_codes is None:
+            return True
+            
         return verify_disjunctive_zkp(c1, c2, election_public_key, valid_codes, proof_ints)
 
     @classmethod

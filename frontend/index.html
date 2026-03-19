@@ -66,7 +66,7 @@
                         <div class="input-group">
                             <label for="candidate-code">Candidate Code</label>
                             <input type="number" id="candidate-code" placeholder="e.g. 4427" required autocomplete="off">
-                            <span class="input-hint">Reference your physical code sheet. Available codes: <strong>4427, 8391, 9102</strong></span>
+                            <span class="input-hint">Enter the secret numeric code (e.g., 8421) from your physical code sheet.</span>
                         </div>
 
                         <div class="cryptography-status">
@@ -285,7 +285,10 @@
             </div>
             <div class="ledger-modal-footer">
                 <span id="lm-status" class="lm-status"></span>
-                <a id="lm-ledger-link" href="#" target="_blank" class="btn btn-secondary">Browse Full Ledger →</a>
+                <div style="display: flex; gap: 0.5rem">
+                    <a id="lm-base-link" href="https://base-sepolia.blockscout.com/address/0xB88Bbb82B85E6e459c474113840036a1Ff37cD24#transactions" target="_blank" class="btn btn-outline" style="min-width: unset;">🔵 Base Sepolia</a>
+                    <a id="lm-ledger-link" href="#" target="_blank" class="btn btn-secondary" style="min-width: unset;">Browse JSON API</a>
+                </div>
             </div>
         </div>
     </div>

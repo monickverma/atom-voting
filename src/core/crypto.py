@@ -66,9 +66,9 @@ def reencrypt(c1: int, c2: int, h: int) -> tuple[int, int]:
     return c1_prime, c2_prime
 
 
-def decode_candidate(gm: int, valid_codes: list[int]) -> int | None:
-    """Matches the decrypted group element g^m back to the numeric code m."""
-    for code in valid_codes:
+def decode_candidate(gm: int, max_code: int = 9999) -> int | None:
+    """Matches the decrypted group element g^m back to the numeric code m by brute-forcing the discrete log."""
+    for code in range(max_code + 1):
         if pow(G, code, P) == gm:
             return code
     return None

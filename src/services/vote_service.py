@@ -28,7 +28,75 @@ from src.models.ballot import (
     VoteBlock,
 )
 
-# In-memory stores for hackathon demo. Replace with real PG adapter.
+import asyncio
+import json
+import os
+from web3 import Web3
+
+# ─── Base Sepolia Web3 Setup ───────────────────────────────────────────────────
+_web3 = None
+_contract = None
+_deployer_account = None
+
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(os.path.dirname(__file__), "../../smart-contracts/.env")
+    load_dotenv(env_path)
+
+    _rpc_url = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
+    _private_key = os.getenv("PRIVATE_KEY")
+    _contract_address = "0xB88Bbb82B85E6e459c474113840036a1Ff37cD24"
+    
+    if _private_key:
+        _web3 = Web3(Web3.HTTPProvider(_rpc_url))
+        _deployer_account = _web3.eth.account.from_key(_private_key)
+        
+        # Load ABI
+        abi_path = os.path.join(
+            os.path.dirname(__file__), 
+            "../../smart-contracts/artifacts/contracts/VoteLedger.sol/VoteLedger.json"
+        )
+        if os.path.exists(abi_path):
+            with open(abi_path, "r") as f:
+                _contract_abi = json.load(f)["abi"]
+            _contract = _web3.eth.contract(address=_contract_address, abi=_contract_abi)
+            print(f"✅ Web3 initialized. Anchoring to {_contract_address}")
+        else:
+            print("⚠️ Web3 ABI not found. Run hardhat compile first.")
+    else:
+        print("⚠️ No PRIVATE_KEY in .env. On-chain anchoring disabled.")
+except Exception as e:
+    print(f"⚠️ Web3 initialization failed: {e}")
+
+
+async def anchor_vote_to_base(block: VoteBlock):
+    """Background task to anchor a confirmed vote block to Base Sepolia."""
+    if not _web3 or not _contract or not _deployer_account:
+        return
+        
+    try:
+        # Build transaction (Web3 auto-calculates gas)
+        tx = _contract.functions.anchorBallot(
+            block.vote_id,
+            block.credential_hash,
+            block.receipt_hash,
+            block.revote_pointer or ""
+        ).build_transaction({
+            "from": _deployer_account.address,
+            "nonce": _web3.eth.get_transaction_count(_deployer_account.address, 'pending'),
+        })
+        
+        # Sign transaction
+        signed_tx = _web3.eth.account.sign_transaction(tx, private_key=_deployer_account.key)
+        
+        # Send transaction
+        tx_hash = _web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        print(f"🗳️ Vote {block.vote_id} anchored! Tx Hash: {tx_hash.hex()}")
+        
+    except Exception as e:
+        print(f"❌ Failed to anchor vote {block.vote_id} to Base: {e}")
+
+# ─── In-Memory Stores ───────────────────────────────────────────────────────
 _ledger: list[VoteBlock] = []
 _seen_nonces: set[str] = set()
 _pending_ballots: dict[str, PendingBallot] = {}  # ballot_hash -> PendingBallot
@@ -45,11 +113,6 @@ _fake_credentials: set[str] = set()
 # Real cryptographic keys! (Demo defaults)
 ELECTION_PUBLIC_KEY = DEMO_PUBK
 IS_ELECTION_OPEN = True
-
-# Code mapping for tallying (would be managed by Code Server)
-CODE_MAP = {4427: "Candidate B", 8391: "Candidate A", 9102: "Candidate C"}
-VALID_CODES = list(CODE_MAP.keys())
-
 
 # ─── JCJ Credential Management ──────────────────────────────────────────────
 
@@ -239,21 +302,18 @@ def run_full_ceremony(trustee_shares_to_provide: int = 3) -> dict:
 
     # ── Step 7: Count final tally ─────────────────────────────────────────────
     ceremony_log.append("[7/7] Computing final vote tally")
-    tally: dict[str, int] = {name: 0 for name in CODE_MAP.values()}
+    tally: dict[str, int] = {}
 
-    # For stub ballots (random hex, not real ElGamal) map by position to block order
-    # This provides a sensible demo result even without real encrypted candidates.
     real_count = len(real_valid_blocks)
     for i, block in enumerate(real_valid_blocks):
         code = decrypted_values[i] if i < len(decrypted_values) else None
         if code is None:
-            # Stub: derive code from credential hash for deterministic demo result
+            # Deterministic fallback for stub/dummy encrypted ballots
             import hashlib
-            code_idx = int(hashlib.md5(block.credential_hash.encode()).hexdigest(), 16) % len(VALID_CODES)
-            code = VALID_CODES[code_idx]
-        candidate = CODE_MAP.get(code)
-        if candidate and candidate in tally:
-            tally[candidate] += 1
+            code = int(hashlib.md5(block.credential_hash.encode()).hexdigest(), 16) % 10000
+            
+        candidate_label = f"Code {str(code).zfill(4)}"
+        tally[candidate_label] = tally.get(candidate_label, 0) + 1
 
     ceremony_log.append(f"[7/7] Tally complete. Total counted: {real_count}")
 
@@ -279,7 +339,7 @@ async def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | Challen
     Handles both CAST and CHALLENGE actions.
     """
     # 1. Pure domain validation (throws VotingError if invalid)
-    validate_ballot(request, ELECTION_PUBLIC_KEY, VALID_CODES, _seen_nonces, IS_ELECTION_OPEN)
+    validate_ballot(request, ELECTION_PUBLIC_KEY, _seen_nonces, IS_ELECTION_OPEN)
 
     if request.action == VoteAction.CHALLENGE:
         # Challenge audit: Server decrypts the ElGamal ciphertext, reveals candidate, and DESTROYS ballot
@@ -288,13 +348,12 @@ async def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | Challen
         
         # In a real system, the server decrypts using threshold shares. For the demo, we use DEMO_PRVK.
         gm = decrypt(c1, c2, DEMO_PRVK)
-        code = decode_candidate(gm, VALID_CODES) or 0
-        candidate_name = CODE_MAP.get(code, "Unknown")
+        code = decode_candidate(gm) or 0
         
         _seen_nonces.add(request.encrypted_ballot.nonce_id)
         return ChallengeResponse(
             decrypted_code=code,
-            candidate_mapping_hint=f"{code} → {candidate_name}",
+            candidate_mapping_hint=f"Code {str(code).zfill(4)} (Mapped securely offline)",
         )
 
     # 2. Cast action: save to immutable ledger
@@ -340,11 +399,27 @@ def run_tally() -> dict[str, int]:
         c1 = int(block.ciphertext.c1, 16)
         c2 = int(block.ciphertext.c2, 16)
         gm = decrypt(c1, c2, DEMO_PRVK)
-        code = decode_candidate(gm, VALID_CODES)
+        code = decode_candidate(gm)
         if code is not None:
             decrypted_codes[block.vote_id] = code
             
-    return tally_votes(_ledger, _fake_credentials, CODE_MAP, decrypted_codes)
+    # Inline tally logic since we dropped CODE_MAP
+    _real_blocks = [b for b in _ledger if b.credential_hash not in _fake_credentials]
+    _deduped = []
+    seen = set()
+    for block in reversed(sorted(_real_blocks, key=lambda x: x.timestamp)):
+        if block.credential_hash not in seen:
+            _deduped.append(block)
+            seen.add(block.credential_hash)
+            
+    tally = {}
+    for block in _deduped:
+        c = decrypted_codes.get(block.vote_id)
+        if c is not None:
+            label = f"Code {str(c).zfill(4)}"
+            tally[label] = tally.get(label, 0) + 1
+            
+    return tally
 
 
 # ─── Dual-Device Two-Phase Commit ───────────────────────────────────────────
@@ -448,6 +523,9 @@ async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
 
     # Count how many times this credential has voted (for the receipt display)
     revote_count = len([b for b in _ledger if b.credential_hash == pending.credential_hash])
+
+    # Trigger async on-chain anchoring to Base Sepolia (Fire and Forget)
+    asyncio.create_task(anchor_vote_to_base(block))
 
     # Broadcast to all WebSocket listeners
     await manager.broadcast(

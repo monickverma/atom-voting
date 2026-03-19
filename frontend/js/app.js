@@ -18,9 +18,6 @@ let Session = {
     qrShownAt: 0,       // Timestamp (ms) when QR view was shown
 };
 
-// Candidate name lookup by code (mirrors backend CODE_MAP)
-const CANDIDATE_MAP = { 4427: 'Candidate B', 8391: 'Candidate A', 9102: 'Candidate C' };
-
 // === DOM Elements ===
 const Views = {
     login: document.getElementById('view-login'),
@@ -347,10 +344,10 @@ async function loadVerificationView(ballotHash) {
         document.getElementById('verify-c1').textContent = data.encrypted_c1_preview + '...';
         document.getElementById('verify-c2').textContent = data.encrypted_c2_preview + '...';
 
-        // Decode candidate from URL param
+        // Decode candidate from URL param (if present)
         const urlParams = new URLSearchParams(window.location.search);
         const codeParam = parseInt(urlParams.get('code') || '0', 10);
-        const candidateName = CANDIDATE_MAP[codeParam] || 'Verify on your code sheet';
+        const candidateName = codeParam ? `Code Sheet Mapping: ${codeParam}` : 'Verify on your code sheet';
         document.getElementById('verify-candidate-name').textContent = candidateName;
 
     } catch (err) {

@@ -58,7 +58,7 @@ class TestCeremonyCryptography:
         c2_int = int(mixed_ballot.c2, 16)
         
         gm = decrypt(c1_int, c2_int, prvk)
-        assert decode_candidate(gm, [4427]) == 4427
+        assert decode_candidate(gm) == 4427
 
 
 class TestCeremonySimulation:

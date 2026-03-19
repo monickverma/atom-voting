@@ -1,0 +1,17 @@
+{
+  "name": "atom-voting-contracts",
+  "version": "1.0.0",
+  "description": "Smart contracts for Atom Voting hybrid anchoring",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:base-sepolia": "hardhat run scripts/deploy.js --network base_sepolia"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.3"
+  }
+}

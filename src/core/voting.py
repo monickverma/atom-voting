@@ -73,9 +73,9 @@ def compute_receipt_hash(vote_id: str, credential_hash: str, timestamp: datetime
 def validate_ballot(
     request: SubmitVoteRequest,
     election_public_key: int,
-    valid_codes: list[int],
     seen_nonces: set[str],
     election_open: bool,
+    valid_codes: list[int] | None = None,
 ) -> None:
     """
     Validate a ballot submission against all domain rules.
