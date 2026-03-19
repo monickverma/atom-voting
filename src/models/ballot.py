@@ -244,3 +244,5 @@ class BallotVerification(BaseModel):
     encrypted_c1_preview: str   # First 32 chars of c1 for display
     encrypted_c2_preview: str   # First 32 chars of c2 for display
     confirmed: bool = False
+    is_revote: str = "false"    # "true" if this credential has voted before
+    revote_count: str = "1"     # How many times this credential has voted

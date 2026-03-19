@@ -84,6 +84,18 @@
                             </div>
                         </div>
 
+                        <!-- JCJ Coercion Escape: Fake Credential Toggle -->
+                        <div class="jcj-toggle-box" id="jcj-toggle-box" style="display:none;">
+                            <div class="jcj-toggle-row">
+                                <label class="jcj-switch">
+                                    <input type="checkbox" id="credential-toggle">
+                                    <span class="jcj-slider"></span>
+                                </label>
+                                <span id="credential-label" class="jcj-label">🔐 Real Credential Active — Vote will be counted</span>
+                            </div>
+                            <p class="jcj-hint">Under coercion, switch to Fake Credential. Your real vote is already cast. The coercer cannot distinguish fake from real on the public ledger.</p>
+                        </div>
+
                         <div class="action-buttons">
                             <button type="submit" class="btn btn-primary" id="btn-cast">
                                 Encrypt &amp; Generate QR

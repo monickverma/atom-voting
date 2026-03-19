@@ -249,6 +249,10 @@ body {
     border: 1px solid var(--border-color); box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     animation: slideInLeft 0.3s ease-out;
 }
+.ledger-item-revote {
+    border-left: 3px solid var(--primary-color);
+    background: rgba(255, 126, 103, 0.03);
+}
 @keyframes slideInLeft { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
 .ledger-item-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-secondary); }
 .ledger-item-hash { font-family: monospace; font-size: 0.8rem; word-break: break-all; background: rgba(0,0,0,0.03); padding: 0.25rem 0.5rem; border-radius: 4px; }
@@ -288,3 +292,30 @@ body {
     opacity: 0; transition: opacity 0.3s; font-size: 0.8rem; font-weight: normal;
 }
 .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+
+/* ── JCJ Fake Credential Toggle ── */
+.jcj-toggle-box {
+    margin-top: 1.25rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius-md);
+    background: rgba(239, 68, 68, 0.04);
+    border: 1px dashed rgba(239, 68, 68, 0.3);
+}
+.jcj-toggle-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.jcj-label { font-size: 0.9rem; font-weight: 600; transition: color 0.2s; }
+.jcj-hint { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; }
+/* CSS-only toggle switch */
+.jcj-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.jcj-switch input { opacity: 0; width: 0; height: 0; }
+.jcj-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background-color: var(--border-color); border-radius: 34px;
+    transition: .3s;
+}
+.jcj-slider:before {
+    position: absolute; content: ""; height: 16px; width: 16px;
+    left: 3px; bottom: 3px; background: white; border-radius: 50%;
+    transition: .3s;
+}
+.jcj-switch input:checked + .jcj-slider { background-color: var(--danger-color); }
+.jcj-switch input:checked + .jcj-slider:before { transform: translateX(18px); }

@@ -8,7 +8,10 @@ const API_BASE = '/api/v1';
 let Session = {
     isAuthenticated: false,
     voterId: null,
-    credentialHash: null,
+    credentialHash: null,       // Active credential used when voting
+    realCredentialHash: null,   // JCJ: counted in tally
+    fakeCredentialHash: null,   // JCJ: discarded at tally (reveal under coercion)
+    usingFakeCredential: false, // Currently voting with fake credential?
     currentBallotHash: null,
     pollInterval: null,
     pollNonce: 0,        // Incremented every new vote — guards stale poll callbacks
@@ -63,12 +66,69 @@ document.getElementById('btn-authenticate').addEventListener('click', async () =
     await delay(1500);
     Session.isAuthenticated = true;
     Session.voterId = 'voter_' + Math.floor(Math.random() * 10000);
-    Session.credentialHash = 'cred_' + btoa(Session.voterId).substring(0, 16);
+
+    // Issue JCJ credential pair from the server
+    try {
+        showLoading('Issuing JCJ Credential Pair...');
+        const res = await fetch(`${API_BASE}/auth/credentials/${Session.voterId}`, { method: 'POST' });
+        if (res.ok) {
+            const creds = await res.json();
+            Session.realCredentialHash = creds.real_credential_hash;
+            Session.fakeCredentialHash = creds.fake_credential_hash;
+            Session.credentialHash = Session.realCredentialHash; // default: real
+            Session.usingFakeCredential = false;
+        } else {
+            // Fallback to client-generated credential (offline mode)
+            Session.realCredentialHash = 'cred_' + btoa(Session.voterId).substring(0, 16);
+            Session.fakeCredentialHash = 'fake_' + btoa(Session.voterId + '_f').substring(0, 16);
+            Session.credentialHash = Session.realCredentialHash;
+        }
+    } catch (_) {
+        Session.realCredentialHash = 'cred_' + btoa(Session.voterId).substring(0, 16);
+        Session.fakeCredentialHash = 'fake_' + btoa(Session.voterId + '_f').substring(0, 16);
+        Session.credentialHash = Session.realCredentialHash;
+    }
+
     const statusEl = document.getElementById('nav-user-status');
     statusEl.innerHTML = `<span class="status-dot active"></span> ${Session.voterId}`;
+    updateCredentialToggleUI();
     hideLoading();
-    showToast('Authenticated via hardware token.', 'info');
+    showToast('Authenticated via hardware token. JCJ credentials issued.', 'info');
     showView('vote');
+});
+
+function updateCredentialToggleUI() {
+    const toggle = document.getElementById('credential-toggle');
+    const label = document.getElementById('credential-label');
+    const box = document.getElementById('jcj-toggle-box');
+    if (!toggle || !label || !box) return;
+    // Show the box once credentials are available
+    box.style.display = 'block';
+    if (Session.usingFakeCredential) {
+        toggle.checked = true;
+        label.textContent = '🎭 Fake Credential Active — Coercion Escape Mode';
+        label.style.color = 'var(--danger-color)';
+    } else {
+        toggle.checked = false;
+        label.textContent = '🔐 Real Credential Active — Vote will be counted';
+        label.style.color = 'var(--success-color)';
+    }
+}
+
+// === JCJ Credential Toggle Handler ===
+document.addEventListener('change', (e) => {
+    if (e.target.id !== 'credential-toggle') return;
+    Session.usingFakeCredential = e.target.checked;
+    Session.credentialHash = Session.usingFakeCredential
+        ? Session.fakeCredentialHash
+        : Session.realCredentialHash;
+    updateCredentialToggleUI();
+    showToast(
+        Session.usingFakeCredential
+            ? '🎭 Coercion escape active. Next vote will use the fake credential.'
+            : '🔐 Switched back to real credential.',
+        'info'
+    );
 });
 
 // === Helpers ===
@@ -201,11 +261,30 @@ function startPollingForConfirmation(ballotHash) {
             if (!res.ok) return;
             const data = await res.json();
             if (data.confirmed && Session.pollNonce === myNonce) {
-                clearPolling();
-                showToast('Device B confirmed! Vote is on the ledger.', 'info');
-                document.getElementById('receipt-vote-id').textContent = ballotHash;
-                document.getElementById('receipt-hash').textContent = 'Confirmed by Device B \u00b7 ' + new Date().toLocaleTimeString();
-                showView('receipt');
+                // Fetch the full confirm result to get revote metadata
+                try {
+                    const confirmRes = await fetch(`${API_BASE}/ballots/verify/${ballotHash}`);
+                    const confirmData = confirmRes.ok ? await confirmRes.json() : {};
+                    clearPolling();
+                    const isRevote = confirmData.is_revote === 'true';
+                    const revoteCount = parseInt(confirmData.revote_count || '1', 10);
+                    showToast(
+                        isRevote
+                            ? `↩️ Revote #${revoteCount} confirmed! Previous vote replaced.`
+                            : 'Device B confirmed! Vote is on the ledger.',
+                        'info'
+                    );
+                    document.getElementById('receipt-vote-id').textContent = ballotHash;
+                    document.getElementById('receipt-hash').textContent =
+                        (isRevote ? `↩️ Revote #${revoteCount} · ` : 'Vote #1 · ') +
+                        'Confirmed by Device B · ' + new Date().toLocaleTimeString();
+                    showView('receipt');
+                } catch (_) {
+                    clearPolling();
+                    document.getElementById('receipt-vote-id').textContent = ballotHash;
+                    document.getElementById('receipt-hash').textContent = 'Confirmed by Device B · ' + new Date().toLocaleTimeString();
+                    showView('receipt');
+                }
             }
         } catch (_) { /* silently retry */ }
     }, 2000);
@@ -218,6 +297,8 @@ function clearPolling() {
 
 document.getElementById('btn-vote-again').addEventListener('click', () => {
     document.getElementById('candidate-code').value = '';
+    // Note: we don't need to pass revote_pointer from the frontend anymore.
+    // The backend auto-detects it server-side using the credential_hash.
     showView('vote');
 });
 
@@ -315,11 +396,17 @@ function appendLedgerItem(data) {
     const empty = list.querySelector('.empty-state');
     if (empty) empty.remove();
 
+    const isRevote = data.is_revote === true || data.is_revote === 'true';
+    const icon = isRevote ? '↩️' : '🔐';
+    const label = isRevote
+        ? `Revote #${data.revote_count} — Previous vote superseded`
+        : 'Encrypted Ballot Confirmed';
+
     const item = document.createElement('div');
-    item.className = 'ledger-item';
+    item.className = `ledger-item${isRevote ? ' ledger-item-revote' : ''}`;
     item.innerHTML = `
         <div class="ledger-item-header">
-            <span>🔐 Encrypted Ballot Confirmed</span>
+            <span>${icon} ${label}</span>
             <span>${new Date(data.timestamp).toLocaleTimeString()}</span>
         </div>
         <div class="ledger-item-hash">${data.vote_id}</div>

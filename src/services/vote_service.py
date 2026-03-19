@@ -33,6 +33,15 @@ _ledger: list[VoteBlock] = []
 _seen_nonces: set[str] = set()
 _pending_ballots: dict[str, PendingBallot] = {}  # ballot_hash -> PendingBallot
 
+# Fast O(1) index: credential_hash -> latest vote_id on the ledger
+# Updated atomically whenever a ballot is confirmed.
+_latest_vote_per_credential: dict[str, str] = {}
+
+# JCJ Fake Credentials registry.
+# Maps voter_id -> {"real": real_credential_hash, "fake": fake_credential_hash}.
+# The `_fake_credentials` set is the authoritative filter used by tally_votes().
+_voter_credentials: dict[str, dict[str, str]] = {}
+_fake_credentials: set[str] = set()
 # Real cryptographic keys! (Demo defaults)
 ELECTION_PUBLIC_KEY = DEMO_PUBK
 IS_ELECTION_OPEN = True
@@ -41,9 +50,36 @@ IS_ELECTION_OPEN = True
 CODE_MAP = {4427: "Candidate B", 8391: "Candidate A", 9102: "Candidate C"}
 VALID_CODES = list(CODE_MAP.keys())
 
-# Real cryptographic tally — tracking what we've decrypted so far.
-# In production, decryption happens via threshold shares.
-_fake_credentials: set[str] = set()
+
+# ─── JCJ Credential Management ──────────────────────────────────────────────
+
+def issue_credentials(voter_id: str) -> dict[str, str]:
+    """
+    Generate and register a pair of credentials for a voter (JCJ scheme).
+    - real_hash: the credential that will be counted in the final tally.
+    - fake_hash: looks identical on the ledger; silently discarded at tally time.
+
+    Both hashes are cryptographically indistinguishable on the public ledger.
+    A coercer who forces the voter to reveal their credential gets the fake one.
+    """
+    import hashlib, secrets
+    if voter_id in _voter_credentials:
+        return _voter_credentials[voter_id]
+
+    salt = secrets.token_hex(16)
+    real_hash = hashlib.sha256(f"real:{voter_id}:{salt}".encode()).hexdigest()[:32]
+    fake_hash = hashlib.sha256(f"fake:{voter_id}:{salt}".encode()).hexdigest()[:32]
+
+    _voter_credentials[voter_id] = {"real": real_hash, "fake": fake_hash}
+    # Register the fake hash so tally_votes() silently discards it
+    _fake_credentials.add(fake_hash)
+
+    return {"real": real_hash, "fake": fake_hash}
+
+
+def get_voter_credentials(voter_id: str) -> dict[str, str] | None:
+    """Retrieve existing credentials for a voter. Returns None if not registered."""
+    return _voter_credentials.get(voter_id)
 
 
 async def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResponse:
@@ -159,17 +195,24 @@ def get_pending_ballot(ballot_hash: str) -> BallotVerification | None:
     if pending is None:
         return None
 
+    # Count how many times this credential has already voted on the ledger
+    prior_count = len([b for b in _ledger if b.credential_hash == pending.credential_hash])
+    is_revote = pending.credential_hash in _latest_vote_per_credential
+
     return BallotVerification(
         ballot_hash=pending.ballot_hash,
         encrypted_c1_preview=pending.encrypted_ballot.c1[:32],
         encrypted_c2_preview=pending.encrypted_ballot.c2[:32],
         confirmed=pending.confirmed,
+        is_revote=str(is_revote).lower(),
+        revote_count=str(prior_count + 1),  # +1 for the current pending vote
     )
 
 
 async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
     """
     Phase 2 (Device B confirms): Moves ballot from PENDING to the immutable ledger.
+    Automatically detects if this credential has voted before and sets revote_pointer.
     Fires the WebSocket broadcast. This is the point of no return.
     """
     pending = _pending_ballots.get(ballot_hash)
@@ -181,6 +224,13 @@ async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
         from src.core.voting import VotingError
         raise VotingError("ALREADY_CONFIRMED", "This ballot has already been confirmed.")
 
+    # AUTO-DETECT REVOTE: if this credential has already cast a ballot,
+    # chain the new vote to the previous one via revote_pointer.
+    # This happens server-side so the UI just needs to send the credential_hash.
+    prior_vote_id = _latest_vote_per_credential.get(pending.credential_hash)
+    resolved_revote_pointer = prior_vote_id  # None on first vote, vote_id on revote
+    is_revote = prior_vote_id is not None
+
     # Two-phase commit: move from pending to ledger
     vote_id = _compute_vote_id(pending.encrypted_ballot)
     timestamp = datetime.now(timezone.utc)
@@ -191,7 +241,7 @@ async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
         ciphertext=pending.encrypted_ballot,
         credential_hash=pending.credential_hash,
         timestamp=timestamp,
-        revote_pointer=pending.revote_pointer,
+        revote_pointer=resolved_revote_pointer,  # auto-injected
         zk_proof=pending.zk_proof,
         receipt_hash=receipt_hash,
     )
@@ -199,8 +249,14 @@ async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
     _ledger.append(block)
     _seen_nonces.add(pending.encrypted_ballot.nonce_id)
 
+    # Update the O(1) index so the NEXT vote from this credential points here
+    _latest_vote_per_credential[pending.credential_hash] = vote_id
+
     # Mark as confirmed in the pending store
     _pending_ballots[ballot_hash] = pending.model_copy(update={"confirmed": True})
+
+    # Count how many times this credential has voted (for the receipt display)
+    revote_count = len([b for b in _ledger if b.credential_hash == pending.credential_hash])
 
     # Broadcast to all WebSocket listeners
     await manager.broadcast(
@@ -209,7 +265,16 @@ async def confirm_ballot(ballot_hash: str) -> dict[str, str]:
             "vote_id": vote_id,
             "timestamp": timestamp.isoformat(),
             "receipt_hash": receipt_hash,
+            "is_revote": is_revote,
+            "revote_count": revote_count,
         },
     )
 
-    return {"receipt_hash": receipt_hash, "vote_id": vote_id, "ballot_hash": ballot_hash}
+    return {
+        "receipt_hash": receipt_hash,
+        "vote_id": vote_id,
+        "ballot_hash": ballot_hash,
+        "is_revote": str(is_revote).lower(),
+        "revote_count": str(revote_count),
+        "revote_pointer": resolved_revote_pointer or "",
+    }

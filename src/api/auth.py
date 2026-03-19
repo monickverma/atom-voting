@@ -123,3 +123,46 @@ def verify_login(request: LoginVerifyRequest) -> dict[str, str]:
         "verified": True,
         "session_token": "mock_jwt_token_for_device_a" 
     }
+
+
+# ─── JCJ Credential Issuance ─────────────────────────────────────────────
+
+from src.services import vote_service  # noqa: E402
+
+
+@router.post("/credentials/{voter_id}", status_code=status.HTTP_201_CREATED)
+def issue_credentials(voter_id: str) -> dict[str, str]:
+    """
+    Issue a JCJ Credential Pair for this voter:
+    - real_hash: the credential that will be COUNTED in the final tally
+    - fake_hash: indistinguishable on the ledger, silently DISCARDED at tally time
+
+    The voter keeps the real_hash secret. Under coercion they reveal the fake_hash.
+    A coercer cannot distinguish which credential is real by observing the ledger.
+    """
+    creds = vote_service.issue_credentials(voter_id)
+    return {
+        "voter_id": voter_id,
+        "real_credential_hash": creds["real"],
+        "fake_credential_hash": creds["fake"],
+        "warning": "Keep real_credential_hash secret. Reveal fake_credential_hash under coercion."
+    }
+
+
+@router.get("/credentials/{voter_id}", status_code=status.HTTP_200_OK)
+def get_credentials(voter_id: str) -> dict[str, str]:
+    """
+    Retrieve an existing JCJ Credential Pair for this voter.
+    Returns 404 if credentials have not been issued yet.
+    """
+    creds = vote_service.get_voter_credentials(voter_id)
+    if creds is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No credentials found. POST to /credentials/{voter_id} to issue them."
+        )
+    return {
+        "voter_id": voter_id,
+        "real_credential_hash": creds["real"],
+        "fake_credential_hash": creds["fake"],
+    }
