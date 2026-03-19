@@ -359,3 +359,34 @@ body {
     display: flex; justify-content: space-between; align-items: center; gap: 1rem;
 }
 .lm-status { font-size: 0.9rem; font-weight: 600; color: var(--success-color); }
+
+/* ── Tally Ceremony Panel ── */
+.tally-panel { margin-top: 1.5rem; max-width: 1000px; padding: 0 1rem; }
+.card-header.admin { background: rgba(0,0,0,0.03); border-bottom-color: rgba(0,0,0,0.08); }
+.tally-controls { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.tally-options { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9rem; font-weight: 500; }
+.select-input { padding: 0.5rem 1rem; border: 1px solid var(--border-color); border-radius: 6px; font-family: inherit; font-size: 0.9rem; }
+
+.ceremony-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; background: var(--bg-color); border-radius: var(--radius-md); padding: 1.5rem; border: 1px solid var(--border-color); }
+@media (max-width: 800px) { .ceremony-dashboard { grid-template-columns: 1fr; } }
+
+/* macOS style terminal window for logs */
+.ceremony-log-window { background: #1e1e1e; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.log-header { background: #323233; padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; position: relative; }
+.log-header .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.log-header .dot.red { background: #ff5f56; } .log-header .dot.yellow { background: #ffbd2e; } .log-header .dot.green { background: #27c93f; }
+.log-title { position: absolute; left: 50%; transform: translateX(-50%); color: #999; font-size: 0.75rem; font-family: monospace; }
+.log-content { padding: 1rem; font-size: 0.8rem; color: #a9dc76; height: 260px; overflow-y: auto; line-height: 1.5; }
+.log-content div { margin-bottom: 0.3rem; opacity: 0; animation: fadeInLog 0.3s forwards; }
+@keyframes fadeInLog { to { opacity: 1; } }
+
+.tally-results-box { background: var(--surface-color); border-radius: 8px; padding: 1.5rem; border: 1px solid var(--border-color); }
+.tally-results-box h3 { font-size: 1.1rem; margin-bottom: 1rem; }
+.tally-stats { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.stat-badge { background: rgba(0,0,0,0.05); padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.8rem; }
+.stat-badge.danger { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+.tally-bars { display: flex; flex-direction: column; gap: 1rem; }
+.tally-bar-row { display: flex; flex-direction: column; gap: 0.3rem; }
+.tally-bar-header { display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 500; }
+.tally-bar-track { height: 12px; background: rgba(0,0,0,0.05); border-radius: 6px; overflow: hidden; }
+.tally-bar-fill { height: 100%; background: var(--primary-color); border-radius: 6px; width: 0; transition: width 1s cubic-bezier(0.16, 1, 0.3, 1); }

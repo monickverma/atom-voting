@@ -111,3 +111,29 @@ def get_ledger_block(vote_id: str) -> dict:
             detail="Vote ID not found on the public ledger."
         )
     return block
+
+
+# ─── Tally Ceremony (Features 8 + 9) ──────────────────────────────────────────────────
+
+@router.post("/tally/ceremony", response_model=dict)
+def run_tally_ceremony(shares: int = 3) -> dict:
+    """
+    Run the full post-election tally ceremony:
+      1. Trustee key setup (3-of-5 Shamir threshold)
+      2. Revote deduplication (keep latest vote per credential)
+      3. MixNet shuffle + re-encrypt all valid ballots
+      4. Threshold key reconstruction from `shares` trustee shares
+      5. Decrypt all mixed ciphertexts
+      6. JCJ fake-credential filter
+      7. Final candidate tally
+
+    Query param `shares` controls how many trustee shares to combine (default: 3).
+    Must satisfy: threshold <= num_trustees (5).
+    """
+    if shares < 2 or shares > 5:
+        raise HTTPException(status_code=422, detail="shares must be between 2 and 5")
+    try:
+        result = vote_service.run_full_ceremony(trustee_shares_to_provide=shares)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"message": str(e)}) from e

@@ -427,6 +427,91 @@ document.getElementById('ledger-modal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
 });
 
+// === Tally Ceremony (Features 8+9) ===
+document.getElementById('btn-run-ceremony').addEventListener('click', async () => {
+    const sharesSelect = document.getElementById('trustee-shares');
+    const shares = sharesSelect.value;
+    const btn = document.getElementById('btn-run-ceremony');
+    
+    btn.disabled = true;
+    btn.textContent = 'Running Ceremony...';
+    
+    const dashboard = document.getElementById('ceremony-dashboard');
+    const logBox = document.getElementById('ceremony-log-content');
+    const barsContainer = document.getElementById('tally-bars');
+    
+    // Reset UI
+    dashboard.classList.remove('hidden');
+    logBox.innerHTML = '';
+    barsContainer.innerHTML = '';
+    ['tr-total', 'tr-unique', 'tr-fake'].forEach(id => document.getElementById(id).textContent = '...');
+
+    try {
+        const res = await fetch(`${API_BASE}/tally/ceremony?shares=${shares}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (!res.ok) throw new Error(data.detail?.message || 'Ceremony failed');
+
+        // 1. Stream Logs sequentially for demo effect
+        for (const logLine of data.ceremony_log || []) {
+            const div = document.createElement('div');
+            div.textContent = `> ${logLine}`;
+            logBox.appendChild(div);
+            logBox.scrollTop = logBox.scrollHeight;
+            await delay(400); // UI visual delay
+        }
+
+        // 2. Populate stats
+        document.getElementById('tr-total').textContent = data.total_votes_cast;
+        document.getElementById('tr-unique').textContent = data.total_unique_voters;
+        document.getElementById('tr-fake').textContent = data.fake_votes_discarded;
+
+        // 3. Render Bar Chart
+        if (data.status === 'no_votes') {
+            barsContainer.innerHTML = '<p style="color:var(--text-secondary);font-size:0.9rem;">No valid votes to tally yet.</p>';
+        } else {
+            const tally = data.tally || {};
+            const candidates = Object.keys(tally).sort((a,b) => tally[b] - tally[a]);
+            const maxVotes = Math.max(1, ...Object.values(tally));
+
+            for (const cand of candidates) {
+                const votes = tally[cand];
+                const pct = (votes / maxVotes) * 100;
+                
+                const row = document.createElement('div');
+                row.className = 'tally-bar-row';
+                row.innerHTML = `
+                    <div class="tally-bar-header">
+                        <span>${cand}</span>
+                        <span>${votes} vote${votes === 1 ? '' : 's'}</span>
+                    </div>
+                    <div class="tally-bar-track">
+                        <div class="tally-bar-fill" style="width: 0%"></div>
+                    </div>
+                `;
+                barsContainer.appendChild(row);
+                
+                // Animate bar width on next frame
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        row.querySelector('.tally-bar-fill').style.width = `${pct}%`;
+                    });
+                });
+                await delay(200);
+            }
+        }
+        
+    } catch (err) {
+        const errorDiv = document.createElement('div');
+        errorDiv.textContent = `> ERROR: ${err.message}`;
+        errorDiv.style.color = 'var(--danger-color)';
+        logBox.appendChild(errorDiv);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Run Full Ceremony';
+    }
+});
+
 // === WebSocket Ledger ===
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

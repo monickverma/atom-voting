@@ -220,6 +220,53 @@
         </section>
     </main>
 
+    <!-- BOTTOM PANEL: Tally Ceremony (Admin) -->
+    <section class="tally-panel container">
+        <div class="card">
+            <div class="card-header admin">
+                <div class="card-header-icon">⚖️</div>
+                <h2>Election Tally &amp; Cryptographic Ceremony</h2>
+                <p>Run the offline MixNet shuffle and Shamir Threshold Decryption to finalize the election.</p>
+            </div>
+            <div class="card-body">
+                <div class="tally-controls">
+                    <button id="btn-run-ceremony" class="btn btn-primary">▶ Run Full Ceremony</button>
+                    <div class="tally-options">
+                        <label for="trustee-shares">Trustee Shares to Combine (Threshold):</label>
+                        <select id="trustee-shares" class="select-input">
+                            <option value="2">2 of 5</option>
+                            <option value="3" selected>3 of 5 (Standard)</option>
+                            <option value="4">4 of 5</option>
+                            <option value="5">5 of 5</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="ceremony-dashboard hidden" id="ceremony-dashboard">
+                    <div class="ceremony-log-window">
+                        <div class="log-header">
+                            <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+                            <span class="log-title">ceremony.log</span>
+                        </div>
+                        <div class="log-content monospace" id="ceremony-log-content"></div>
+                    </div>
+
+                    <div class="tally-results-box" id="tally-results-box">
+                        <h3>Final Election Results</h3>
+                        <div class="tally-stats">
+                            <span class="stat-badge">Total Votes: <b id="tr-total">0</b></span>
+                            <span class="stat-badge">Unique Voters: <b id="tr-unique">0</b></span>
+                            <span class="stat-badge danger">Fake/Discarded: <b id="tr-fake">0</b></span>
+                        </div>
+                        <div class="tally-bars" id="tally-bars">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Ledger Verification Modal -->
     <div id="ledger-modal" class="ledger-modal-overlay hidden">
         <div class="ledger-modal-box">
