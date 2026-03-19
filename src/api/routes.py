@@ -81,3 +81,33 @@ async def confirm_ballot(ballot_hash: str) -> dict:
         return await vote_service.confirm_ballot(ballot_hash)
     except VotingError as e:
         raise HTTPException(status_code=422, detail={"code": e.code, "message": e.message}) from e
+
+
+# ─── Public Blockchain Ledger API ───────────────────────────────────────────────────
+
+@router.get("/ledger", response_model=dict)
+def list_ledger_blocks(
+    skip: int = 0,
+    limit: int = 50,
+) -> dict:
+    """
+    Public read-only view of the entire blockchain ledger.
+    Returns encrypted ballot metadata only — no identity, no decrypted votes.
+    Ordered newest-first. Supports pagination via skip/limit query params.
+    """
+    return vote_service.get_ledger_blocks(skip=skip, limit=limit)
+
+
+@router.get("/ledger/{vote_id}", response_model=dict)
+def get_ledger_block(vote_id: str) -> dict:
+    """
+    Look up a single ledger block by its vote_id for voter receipt self-verification.
+    Returns 404 if the vote_id is not found on the ledger.
+    """
+    block = vote_service.get_ledger_block(vote_id)
+    if block is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Vote ID not found on the public ledger."
+        )
+    return block

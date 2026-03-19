@@ -152,7 +152,10 @@
                         </div>
                     </div>
                     <p class="audit-note">Keep this receipt. You can verify your ballot is in the final public ledger using this Tracker ID.</p>
-                    <button id="btn-vote-again" class="btn btn-outline">Submit Revote (Coercion Escape)</button>
+                    <div class="receipt-actions">
+                        <button id="btn-verify-ledger" class="btn btn-secondary">🔍 Verify on Ledger</button>
+                        <button id="btn-vote-again" class="btn btn-outline">Submit Revote (Coercion Escape)</button>
+                    </div>
                 </div>
             </div>
 
@@ -216,6 +219,29 @@
             </div>
         </section>
     </main>
+
+    <!-- Ledger Verification Modal -->
+    <div id="ledger-modal" class="ledger-modal-overlay hidden">
+        <div class="ledger-modal-box">
+            <div class="ledger-modal-header">
+                <h3>🔗 Blockchain Ledger Entry</h3>
+                <button id="btn-close-modal" class="btn-icon">✕</button>
+            </div>
+            <div class="ledger-modal-body">
+                <div class="lm-row"><span class="lm-label">Vote ID</span><code class="lm-value" id="lm-vote-id">--</code></div>
+                <div class="lm-row"><span class="lm-label">Credential Hash</span><code class="lm-value" id="lm-cred">--</code></div>
+                <div class="lm-row"><span class="lm-label">Receipt Hash</span><code class="lm-value" id="lm-receipt">--</code></div>
+                <div class="lm-row"><span class="lm-label">Timestamp</span><code class="lm-value" id="lm-ts">--</code></div>
+                <div class="lm-row"><span class="lm-label">Has ZK Proof</span><code class="lm-value" id="lm-zkp">--</code></div>
+                <div class="lm-row"><span class="lm-label">Is Latest Vote</span><code class="lm-value" id="lm-latest">--</code></div>
+                <div class="lm-row"><span class="lm-label">Revote Pointer</span><code class="lm-value" id="lm-revote">--</code></div>
+            </div>
+            <div class="ledger-modal-footer">
+                <span id="lm-status" class="lm-status"></span>
+                <a id="lm-ledger-link" href="#" target="_blank" class="btn btn-secondary">Browse Full Ledger →</a>
+            </div>
+        </div>
+    </div>
 
     <!-- Overlay Loading Spinner -->
     <div id="loading-overlay" class="overlay hidden">

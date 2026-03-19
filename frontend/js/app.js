@@ -380,6 +380,53 @@ document.getElementById('btn-reject-vote').addEventListener('click', () => {
     showToast('Vote rejected. Return to Device A and start over.', 'error');
 });
 
+// === Ledger Verification Modal ===
+document.getElementById('btn-verify-ledger').addEventListener('click', async () => {
+    const voteId = document.getElementById('receipt-vote-id').textContent.trim();
+    if (!voteId || voteId === '--') return showToast('No vote ID to verify.', 'error');
+
+    // Set Browse Full Ledger link
+    document.getElementById('lm-ledger-link').href = `${API_BASE}/ledger`;
+
+    // Pre-fill with loading state
+    ['lm-vote-id','lm-cred','lm-receipt','lm-ts','lm-zkp','lm-latest','lm-revote']
+        .forEach(id => { document.getElementById(id).textContent = 'Loading...'; });
+    document.getElementById('lm-status').textContent = '';
+    document.getElementById('ledger-modal').classList.remove('hidden');
+
+    try {
+        const res = await fetch(`${API_BASE}/ledger/${encodeURIComponent(voteId)}`);
+        if (!res.ok) {
+            document.getElementById('lm-status').textContent = '\u274c Not found on ledger';
+            document.getElementById('lm-status').style.color = 'var(--danger-color)';
+            ['lm-vote-id','lm-cred','lm-receipt','lm-ts','lm-zkp','lm-latest','lm-revote']
+                .forEach(id => { document.getElementById(id).textContent = '\u2014'; });
+            return;
+        }
+        const data = await res.json();
+        document.getElementById('lm-vote-id').textContent = data.vote_id;
+        document.getElementById('lm-cred').textContent = data.credential_hash;
+        document.getElementById('lm-receipt').textContent = data.receipt_hash;
+        document.getElementById('lm-ts').textContent = new Date(data.timestamp).toLocaleString();
+        document.getElementById('lm-zkp').textContent = data.has_zk_proof ? '\u2705 Yes' : '\u274c No';
+        document.getElementById('lm-latest').textContent = data.is_latest_for_credential
+            ? '\u2705 Yes \u2014 This vote counts'
+            : '\u21a9\ufe0f No \u2014 Superseded by a later revote';
+        document.getElementById('lm-revote').textContent = data.revote_pointer || '\u2014 (first vote)';
+        document.getElementById('lm-status').textContent = '\u2705 Confirmed on ledger';
+        document.getElementById('lm-status').style.color = 'var(--success-color)';
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+});
+
+document.getElementById('btn-close-modal').addEventListener('click', () => {
+    document.getElementById('ledger-modal').classList.add('hidden');
+});
+document.getElementById('ledger-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+});
+
 // === WebSocket Ledger ===
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

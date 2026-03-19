@@ -82,6 +82,56 @@ def get_voter_credentials(voter_id: str) -> dict[str, str] | None:
     return _voter_credentials.get(voter_id)
 
 
+# ─── Public Blockchain Ledger Read API ────────────────────────────────────────
+
+def get_ledger_blocks(skip: int = 0, limit: int = 50) -> dict:
+    """
+    Return a paginated, publicly auditable view of the blockchain.
+    Blocks are returned newest-first (reverse chronological).
+    Sensitive fields (identity, decrypted votes) are NEVER included.
+    """
+    total = len(_ledger)
+    # newest first
+    page = list(reversed(_ledger))[skip : skip + limit]
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "blocks": [
+            {
+                "vote_id": b.vote_id,
+                "credential_hash": b.credential_hash,
+                "timestamp": b.timestamp.isoformat(),
+                "receipt_hash": b.receipt_hash,
+                "revote_pointer": b.revote_pointer,
+                # Redacted: ciphertext and zk_proof kept off public API for demo
+                # In production these ARE public for auditability.
+                "has_zk_proof": b.zk_proof is not None,
+            }
+            for b in page
+        ],
+    }
+
+
+def get_ledger_block(vote_id: str) -> dict | None:
+    """
+    Look up a single block by vote_id (used for voter receipt verification).
+    Returns None if not found.
+    """
+    block = next((b for b in _ledger if b.vote_id == vote_id), None)
+    if block is None:
+        return None
+    return {
+        "vote_id": block.vote_id,
+        "credential_hash": block.credential_hash,
+        "timestamp": block.timestamp.isoformat(),
+        "receipt_hash": block.receipt_hash,
+        "revote_pointer": block.revote_pointer,
+        "has_zk_proof": block.zk_proof is not None,
+        "is_latest_for_credential": _latest_vote_per_credential.get(block.credential_hash) == block.vote_id,
+    }
+
+
 async def process_ballot(request: SubmitVoteRequest) -> dict[str, str] | ChallengeResponse:
     """
     Process an incoming ballot submission.
