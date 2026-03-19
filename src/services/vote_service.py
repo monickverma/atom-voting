@@ -284,7 +284,7 @@ def run_full_ceremony(trustee_shares_to_provide: int = 3) -> dict:
             c1 = int(ballot.c1, 16)
             c2 = int(ballot.c2, 16)
             gm = decrypt(c1, c2, recovered_key)      # returns g^m mod P
-            candidate_code = decode_candidate(gm, VALID_CODES)  # match g^code
+            candidate_code = decode_candidate(gm)  # match g^code
             if candidate_code is not None:
                 decrypted_values.append(candidate_code)
         except (ValueError, OverflowError):
