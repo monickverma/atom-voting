@@ -124,9 +124,13 @@
                     </div>
                     <div id="qr-status-box" class="qr-status-box waiting">
                         <span class="pulse-dot"></span>
-                        <span id="qr-status-text">Waiting for Device B to confirm...</span>
+                        <span id="qr-status-text">Waiting for Device B or AVT-1 Token...</span>
                     </div>
-                    <p class="helper-text">Device B must independently verify your ballot before it is recorded.</p>
+                    <div id="nfc-prompt" class="nfc-prompt hidden">
+                        <div class="nfc-icon-wave">📶</div>
+                        <p><strong>NFC Active:</strong> Tap your AVT-1 Token to the back of your phone to verify.</p>
+                    </div>
+                    <p class="helper-text">Scan the QR code OR use the NFC tap to verify your ballot securely.</p>
                 </div>
             </div>
 

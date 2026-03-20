@@ -201,17 +201,72 @@ async function submitBallot(action, code) {
         if (!res.ok) throw new Error(data.detail?.message || 'Preparation failed');
 
         Session.currentBallotHash = data.ballot_hash;
-        showQRCode(data.ballot_hash, data.verification_url, code);
+        showQRCode(data.ballot_hash, data.verification_url, code, payload.encrypted_ballot.c1, payload.encrypted_ballot.c2);
     } catch (err) {
         hideLoading();
         showToast(err.message, 'error');
     }
 }
 
+// === NFC Token Logic (AVT-1) ===
+function buildNFCPayload(ballotHash, c1, c2) {
+    const buffer = new Uint8Array(138);
+    const encoder = new TextEncoder();
+    
+    // Bytes 0-1: Election ID (simple demo stub)
+    buffer[0] = 0x41; buffer[1] = 0x54; // "AT"
+    
+    // Bytes 42-73: C1 preview (32 hex chars)
+    const c1Bytes = encoder.encode(c1.substring(0, 32));
+    buffer.set(c1Bytes, 42);
+    
+    // Bytes 74-105: C2 preview (32 hex chars)
+    const c2Bytes = encoder.encode(c2.substring(0, 32));
+    buffer.set(c2Bytes, 74);
+    
+    // Bytes 106-137: Ballot hash
+    const hashBytes = encoder.encode(ballotHash.substring(0, 32));
+    buffer.set(hashBytes, 106);
+    
+    return buffer;
+}
+
+async function startNFCBroadcasting(ballotHash, c1, c2) {
+    const prompt = document.getElementById('nfc-prompt');
+    if (!('NDEFReader' in window)) {
+        if (prompt) prompt.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const ndef = new NDEFReader();
+        const payload = buildNFCPayload(ballotHash, c1, c2);
+        
+        // Show pulse UI
+        if (prompt) prompt.classList.remove('hidden');
+        
+        await ndef.write({
+            records: [{
+                recordType: "mime",
+                mediaType: "application/atom-voting",
+                data: payload
+            }]
+        });
+        
+        showToast('NFC Broadcast Active: Tap your AVT-1 Token.', 'info');
+    } catch (err) {
+        console.warn("NFC error:", err);
+        if (prompt) prompt.classList.add('hidden');
+    }
+}
+
 // === QR Code Display ===
-function showQRCode(ballotHash, verificationUrl, candidateCode) {
+function showQRCode(ballotHash, verificationUrl, candidateCode, c1, c2) {
     activateStep('step-qr');
     document.getElementById('qr-ballot-hash').textContent = ballotHash;
+
+    // Start parallel NFC broadcast for AVT-1 Token
+    if (c1 && c2) startNFCBroadcasting(ballotHash, c1, c2);
 
     // CRITICAL: switch view FIRST so the canvas is visible and has layout dimensions
     // before qrcodejs tries to draw into it. On HTTPS deployments the library fails
