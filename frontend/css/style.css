@@ -419,3 +419,10 @@ body {
 }
 .nfc-prompt p { font-size: 0.9rem; font-weight: 500; color: var(--text-primary); }
 .nfc-prompt strong { color: var(--primary-color); }
+.nfc-write-status {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+    min-height: 1.2em;
+    color: var(--text-secondary);
+}

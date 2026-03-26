@@ -209,54 +209,48 @@ async function submitBallot(action, code) {
 }
 
 // === NFC Token Logic (AVT-1) ===
-function buildNFCPayload(ballotHash, c1, c2) {
-    const buffer = new Uint8Array(138);
-    const encoder = new TextEncoder();
-    
-    // Bytes 0-1: Election ID (simple demo stub)
-    buffer[0] = 0x41; buffer[1] = 0x54; // "AT"
-    
-    // Bytes 42-73: C1 preview (32 hex chars)
-    const c1Bytes = encoder.encode(c1.substring(0, 32));
-    buffer.set(c1Bytes, 42);
-    
-    // Bytes 74-105: C2 preview (32 hex chars)
-    const c2Bytes = encoder.encode(c2.substring(0, 32));
-    buffer.set(c2Bytes, 74);
-    
-    // Bytes 106-137: Ballot hash
-    const hashBytes = encoder.encode(ballotHash.substring(0, 32));
-    buffer.set(hashBytes, 106);
-    
-    return buffer;
+// IMPORTANT: Web NFC (NDEFReader.write) requires a direct user gesture (click).
+// Calling it automatically on page load or programmatically is blocked by Android
+// Chrome's security model and fails silently. We show a button instead.
+async function writeNFCTag(verificationUrl) {
+    const statusEl = document.getElementById('nfc-write-status');
+    const btn = document.getElementById('btn-write-nfc');
+    if (statusEl) statusEl.textContent = 'Writing...';
+    if (btn) btn.disabled = true;
+
+    try {
+        const ndef = new NDEFReader();
+        await ndef.write({
+            records: [{
+                recordType: "url",
+                data: verificationUrl
+            }]
+        });
+        if (statusEl) statusEl.textContent = '✅ Tag written! Now tap the token to your phone.';
+        showToast('NFC tag written! Tap AVT-1 Token now.', 'info');
+    } catch (err) {
+        console.warn('NFC write error:', err);
+        if (statusEl) statusEl.textContent = `❌ Failed: ${err.message}`;
+        if (btn) btn.disabled = false;
+    }
 }
 
-async function startNFCBroadcasting(ballotHash, c1, c2) {
+function setupNFCButton(verificationUrl) {
     const prompt = document.getElementById('nfc-prompt');
+    const btn = document.getElementById('btn-write-nfc');
+
     if (!('NDEFReader' in window)) {
+        // Browser doesn't support Web NFC — hide the section silently
         if (prompt) prompt.classList.add('hidden');
         return;
     }
 
-    try {
-        const ndef = new NDEFReader();
-        const payload = buildNFCPayload(ballotHash, c1, c2);
-        
-        // Show pulse UI
-        if (prompt) prompt.classList.remove('hidden');
-        
-        await ndef.write({
-            records: [{
-                recordType: "mime",
-                mediaType: "application/atom-voting",
-                data: payload
-            }]
-        });
-        
-        showToast('NFC Broadcast Active: Tap your AVT-1 Token.', 'info');
-    } catch (err) {
-        console.warn("NFC error:", err);
-        if (prompt) prompt.classList.add('hidden');
+    // Show the NFC section only once we know NFC is supported
+    if (prompt) prompt.classList.remove('hidden');
+
+    // Wire the button click — this IS the user gesture that Chrome requires
+    if (btn) {
+        btn.addEventListener('click', () => writeNFCTag(verificationUrl), { once: true });
     }
 }
 
@@ -265,8 +259,8 @@ function showQRCode(ballotHash, verificationUrl, candidateCode, c1, c2) {
     activateStep('step-qr');
     document.getElementById('qr-ballot-hash').textContent = ballotHash;
 
-    // Start parallel NFC broadcast for AVT-1 Token
-    if (c1 && c2) startNFCBroadcasting(ballotHash, c1, c2);
+    // Setup the NFC button (does NOT auto-write — just shows the button and wires the click)
+    if (verificationUrl) setupNFCButton(verificationUrl);
 
     // CRITICAL: switch view FIRST so the canvas is visible and has layout dimensions
     // before qrcodejs tries to draw into it. On HTTPS deployments the library fails

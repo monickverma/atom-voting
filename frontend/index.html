@@ -128,9 +128,13 @@
                     </div>
                     <div id="nfc-prompt" class="nfc-prompt hidden">
                         <div class="nfc-icon-wave">📶</div>
-                        <p><strong>NFC Active:</strong> Tap your AVT-1 Token to the back of your phone to verify.</p>
+                        <p>Using an AVT-1 Hardware Token? Press the button below, then tap it to your phone.</p>
+                        <button id="btn-write-nfc" class="btn btn-primary" style="margin-top:0.5rem;">
+                            📶 Write to AVT-1 Token
+                        </button>
+                        <span id="nfc-write-status" class="nfc-write-status"></span>
                     </div>
-                    <p class="helper-text">Scan the QR code OR use the NFC tap to verify your ballot securely.</p>
+                    <p class="helper-text">Scan the QR code with a second phone, OR tap your AVT-1 Token using the button above.</p>
                 </div>
             </div>
 
